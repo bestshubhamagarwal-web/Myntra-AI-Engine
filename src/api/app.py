@@ -76,17 +76,33 @@ def pending_store_detail(boot_error: str | None) -> str:
     if not err:
         return "Query API is connecting to Postgres. Retry in a few seconds."
     lowered = err.lower()
-    if "vector" in lowered or "extension" in lowered:
+    if (
+        'extension "vector"' in lowered
+        or "pgvector extension" in lowered
+        or "create extension vector" in lowered
+    ):
         return (
             "Migrations need pgvector. Use Railway's pgvector template (not default "
-            "Postgres) and set DATABASE_URL to ${{Postgres.DATABASE_URL}}. "
+            "Postgres). Copy that service's DATABASE_URL (postgresql://…) onto the API. "
+            f"Last error: {err}"
+        )
+    if (
+        "host=unknown" in lowered
+        or "no hostname" in lowered
+        or "not a real postgres url" in lowered
+        or "${{" in err
+    ):
+        return (
+            "DATABASE_URL on the API is not a real postgres:// URL. Open the "
+            "database service → Variables, copy DATABASE_URL, paste it on the API "
+            "(it must look like postgresql://postgres:…@….railway.internal:5432/railway). "
             f"Last error: {err}"
         )
     if "localhost" in lowered or "127.0.0.1" in lowered:
         return (
-            "DATABASE_URL still points at localhost. In Railway Variables set "
-            "DATABASE_URL=${{Postgres.DATABASE_URL}} from the pgvector service. "
-            f"Last error: {err}"
+            "DATABASE_URL still points at localhost. Copy DATABASE_URL from the "
+            "Railway database service (postgresql://…railway.internal… or …rlwy.net…), "
+            f"paste it on the API, redeploy. Last error: {err}"
         )
     return f"Query API cannot reach Postgres. {err}"
 

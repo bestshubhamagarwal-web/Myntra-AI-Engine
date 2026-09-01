@@ -55,6 +55,17 @@ def test_resolve_database_url_prefers_private_when_local(monkeypatch):
     assert "sslmode=prefer" in url
 
 
+def test_resolve_database_url_ignores_uninterpolated_reference(monkeypatch):
+    monkeypatch.setenv(
+        "DATABASE_PRIVATE_URL",
+        "postgresql://u:p@postgres.railway.internal:5432/railway",
+    )
+    url = resolve_database_url("${{Postgres.DATABASE_URL}}")
+    assert "railway.internal" in url
+    url = resolve_database_url("")
+    assert "railway.internal" in url
+
+
 def test_wait_for_postgres_rejects_localhost_on_railway(monkeypatch, tmp_path):
     monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
     for key in (
@@ -75,6 +86,29 @@ def test_wait_for_postgres_rejects_localhost_on_railway(monkeypatch, tmp_path):
         raw_store_path=tmp_path,
     )
     with pytest.raises(PostgresRequiredError, match="localhost"):
+        wait_for_postgres(settings)
+
+
+def test_wait_for_postgres_rejects_placeholder_on_railway(monkeypatch, tmp_path):
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    for key in (
+        "DATABASE_PRIVATE_URL",
+        "DATABASE_PUBLIC_URL",
+        "POSTGRES_URL",
+        "POSTGRES_PRISMA_URL",
+        "PGHOST",
+        "PG_HOST",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    settings = Settings(
+        database_url="${{Postgres.DATABASE_URL}}",
+        require_postgres=True,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    with pytest.raises(PostgresRequiredError, match="not a real Postgres URL"):
         wait_for_postgres(settings)
 
 
@@ -136,8 +170,15 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     assert "connecting to Postgres" in generic
     vector = pending_store_detail('extension "vector" is not available')
     assert "pgvector" in vector.lower()
+    reachability = pending_store_detail(
+        "Postgres is required (REQUIRE_POSTGRES=true) but was not reachable. "
+        "Check DATABASE_URL (Railway private URL + pgvector template) and retry. "
+        "Last check: not listening or handshake failed (host=unknown)."
+    )
+    assert "Migrations need pgvector" not in reachability
+    assert "not a real postgres" in reachability.lower() or "copy DATABASE_URL" in reachability
     local = pending_store_detail("could not connect to server at localhost")
-    assert "DATABASE_URL still points at localhost" in local
+    assert "localhost" in local.lower()
 
 
 def test_require_postgres_health_listens_before_db(tmp_path):
