@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discovery - Insight Copilot</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#33302c",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#fffbff",
+                        "tertiary-container": "#6370b7",
+                        "surface-variant": "#e9e1dc",
+                        "inverse-primary": "#ffb2ba",
+                        "on-error-container": "#93000a",
+                        "surface": "#fff8f4",
+                        "surface-bright": "#fff8f4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed-variant": "#544248",
+                        "tertiary-fixed": "#dee0ff",
+                        "outline-variant": "#e3bdc0",
+                        "surface-dim": "#e0d9d3",
+                        "on-secondary-container": "#715d64",
+                        "primary-container": "#df2457",
+                        "primary": "#b90041",
+                        "on-primary-fixed": "#400011",
+                        "secondary": "#6d5960",
+                        "surface-tint": "#bd0043",
+                        "on-secondary-fixed": "#26171d",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#f3d9e1",
+                        "surface-container": "#f4ece7",
+                        "surface-container-high": "#efe7e1",
+                        "background": "#fff8f4",
+                        "primary-fixed": "#ffd9dc",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#ffb2ba",
+                        "tertiary-fixed-dim": "#bac3ff",
+                        "inverse-on-surface": "#f7efea",
+                        "on-secondary": "#ffffff",
+                        "surface-container-low": "#faf2ed",
+                        "on-primary-container": "#fffbff",
+                        "tertiary": "#4a579d",
+                        "outline": "#8f6f72",
+                        "secondary-fixed": "#f6dce4",
+                        "surface-container-highest": "#e9e1dc",
+                        "on-surface": "#1e1b18",
+                        "secondary-fixed-dim": "#d9c0c8",
+                        "on-tertiary-fixed": "#001159",
+                        "on-surface-variant": "#5b4042",
+                        "on-background": "#1e1b18",
+                        "on-tertiary-fixed-variant": "#344186",
+                        "on-primary-fixed-variant": "#910031",
+                        "on-tertiary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "drawer_width": "480px",
+                        "base_grid": "8px",
+                        "container_padding": "32px",
+                        "sidebar_width": "240px",
+                        "gutter": "24px",
+                        "card_padding": "24px"
+                    },
+                    "fontFamily": {
+                        "display": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "number-data": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "number-data": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Hide scrollbar for clean editorial look */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #e3bdc0; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #df2457; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md flex h-screen overflow-hidden">
+<!-- SideNavBar (Shared Component) -->
+<nav class="fixed left-0 top-0 h-screen w-[240px] border-r border-outline-variant bg-surface flex flex-col py-6 z-50">
+<div class="px-6 mb-8 flex flex-col gap-1">
+<h1 class="font-display text-display font-black text-on-surface">Discovery</h1>
+<span class="font-body-md text-body-md text-on-surface-variant">Wishlist insights</span>
+</div>
+<div class="px-4 mb-6">
+<button class="w-full bg-primary text-on-primary rounded-lg py-2.5 px-4 font-label-md flex items-center justify-center gap-2 hover:opacity-90 transition-all duration-150 shadow-sm">
+<span class="material-symbols-outlined" data-icon="sparkles" style="font-variation-settings: 'FILL' 1;">arrow_back_ios_new</span>
+                Copilot
+            </button>
+</div>
+<div class="flex-1 overflow-y-auto flex flex-col gap-1">
+<!-- Tabs -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="dataset">dataset</span>
+<span class="font-body-md text-body-md">Themes</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="fact_check">fact_check</span>
+<span class="font-body-md text-body-md">Evidence</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="category">category</span>
+<span class="font-body-md text-body-md">Categories</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="trending_up">trending_up</span>
+<span class="font-body-md text-body-md">Trends</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-body-md text-body-md">Segments</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="source">source</span>
+<span class="font-body-md text-body-md">Sources</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+<span class="font-body-md text-body-md">Phrases</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="font-body-md text-body-md">Reports</span>
+</a>
+</div>
+<div class="mt-auto px-4 pt-4 border-t border-outline-variant flex flex-col gap-2">
+<div class="flex items-center gap-3 text-on-surface-variant text-label-md font-label-md px-2 py-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="update">update</span>
+                Ingest 2h ago
+            </div>
+<div class="flex items-center gap-3 text-on-surface-variant text-label-md font-label-md px-2 py-1">
+<span class="material-symbols-outlined text-[16px]" data-icon="refresh">refresh</span>
+                Themes refreshed
+            </div>
+</div>
+</nav>
+<!-- Main Workspace -->
+<main class="ml-[240px] flex-1 flex flex-col h-screen relative bg-surface">
+<!-- TopAppBar (Shared Component) -->
+<header class="docked full-width top-0 sticky z-40 border-b border-outline-variant bg-surface flex justify-between items-center h-16 px-gutter">
+<div class="flex items-center gap-8">
+<!-- Navigation Links -->
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md" href="#">Last 90 days</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md" href="#">All sources</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md" href="#">All Category</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md" href="#">All Segment</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-on-surface transition-colors font-label-md text-label-md border border-outline-variant px-3 py-1.5 rounded">Internal PM</button>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors font-label-md text-label-md border border-outline-variant px-3 py-1.5 rounded">Share view</button>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors w-8 h-8 flex items-center justify-center rounded-full"><span class="material-symbols-outlined" data-icon="notifications">notifications</span></button>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors w-8 h-8 flex items-center justify-center rounded-full"><span class="material-symbols-outlined" data-icon="settings">settings</span></button>
+<img alt="User Avatar" class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A professional headshot of a corporate user on a clean, light mode minimalist background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBMUTNd7WvBdZd8AjDoaV7NzxVkci8-MmDoKnh9KZ85ux58ekc9JU8bbflkzN9os8jXuzQm8mcyxuI4YNtP4FDhN60nCHNhFsqELewdfA--eKBYF3M2hIKgBrLe583BXDxEDpb2tQNGg7cy9fcDuoqT7ZIkR-ih5xAPq1Djd3yE70vC9VLw5wQUG00jfuVSwXxZwLYpfYoMfALGXDFYrwPW9zp5tqRro3AMEsjzmH54pPFMGNF4h-KGqQ"/>
+</div>
+</header>
+<!-- Copilot Layout: 60/40 Split -->
+<div class="flex flex-1 overflow-hidden">
+<!-- Conversation Column (60%) -->
+<section class="w-[60%] border-r border-outline-variant flex flex-col relative bg-surface-container-lowest">
+<!-- Chat History (Scrollable) -->
+<div class="flex-1 overflow-y-auto p-container_padding pb-32 flex flex-col gap-10">
+<!-- Turn 1: Prose + Metric Strip + Citations -->
+<div class="flex flex-col gap-6">
+<!-- User Query -->
+<div class="self-end max-w-[80%]">
+<div class="bg-surface-container px-5 py-3 rounded-2xl rounded-tr-sm border border-outline-variant">
+<p class="font-body-md text-body-md text-on-surface">What are the primary drivers for user wishlist additions in the activewear segment this quarter?</p>
+</div>
+</div>
+<!-- AI Response -->
+<div class="self-start max-w-[90%] flex gap-4">
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant flex items-center justify-center shrink-0 mt-1">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="sparkles">arrow_back_ios_new</span>
+</div>
+<div class="flex flex-col gap-4">
+<div class="font-body-lg text-body-lg text-on-surface leading-relaxed">
+                                    Based on verbatim analysis across 4,200 activewear reviews and social mentions, the primary driver for wishlist additions is <strong>fabric innovation</strong>, specifically related to moisture-wicking properties and sustainability. Price drops secondary to performance metrics.
+                                </div>
+<!-- Metric Strip -->
+<div class="flex gap-4 w-full">
+<div class="flex-1 bg-surface border border-outline-variant rounded p-3">
+<div class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase tracking-wider">Fabric Mentions</div>
+<div class="font-headline-md text-headline-md text-primary">+42%</div>
+</div>
+<div class="flex-1 bg-surface border border-outline-variant rounded p-3">
+<div class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase tracking-wider">Price Sensitivity</div>
+<div class="font-headline-md text-headline-md text-on-surface">-18%</div>
+</div>
+<div class="flex-1 bg-surface border border-outline-variant rounded p-3">
+<div class="font-label-md text-label-md text-on-surface-variant mb-1 uppercase tracking-wider">Sustainability</div>
+<div class="font-headline-md text-headline-md text-on-surface">2.4x Vol</div>
+</div>
+</div>
+<!-- Citation Chips -->
+<div class="flex flex-wrap gap-2 mt-2">
+<button class="bg-surface-variant text-on-surface-variant font-label-md text-label-md border border-outline-variant rounded-full px-3 py-1 inline-flex items-center gap-1 hover:bg-surface-container-highest transition-colors" onclick="document.getElementById('evidence-drawer').classList.remove('translate-x-full')">
+<span class="material-symbols-outlined text-[14px]" data-icon="description">description</span>
+                                        Q3 Activewear Report
+                                    </button>
+<button class="bg-surface-variant text-on-surface-variant font-label-md text-label-md border border-outline-variant rounded-full px-3 py-1 inline-flex items-center gap-1 hover:bg-surface-container-highest transition-colors" onclick="document.getElementById('evidence-drawer').classList.remove('translate-x-full')">
+<span class="material-symbols-outlined text-[14px]" data-icon="chat_bubble">chat_bubble</span>
+                                        Verbatim Cluster: "Sweat-proof"
+                                    </button>
+</div>
+</div>
+</div>
+</div>
+<hr class="border-t border-outline-variant/50 w-3/4 mx-auto"/>
+<!-- Turn 2: Comparative Layout -->
+<div class="flex flex-col gap-6">
+<!-- User Query -->
+<div class="self-end max-w-[80%]">
+<div class="bg-surface-container px-5 py-3 rounded-2xl rounded-tr-sm border border-outline-variant">
+<p class="font-body-md text-body-md text-on-surface">Can you compare the momentum of Footwear vs Ethnic wear over the last 30 days?</p>
+</div>
+</div>
+<!-- AI Response -->
+<div class="self-start max-w-[95%] flex gap-4 w-full">
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant flex items-center justify-center shrink-0 mt-1">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="sparkles">arrow_back_ios_new</span>
+</div>
+<div class="flex flex-col gap-4 w-full">
+<div class="font-body-md text-body-md text-on-surface">
+                                    Here is a comparative breakdown of wishlist momentum. Footwear is showing acute spikes driven by drops, while Ethnic wear maintains a steady, higher baseline volume.
+                                </div>
+<!-- Comparative Bento -->
+<div class="grid grid-cols-2 gap-4 w-full">
+<!-- Footwear Card -->
+<div class="bg-surface border border-outline-variant p-4 flex flex-col gap-3">
+<div class="flex items-center justify-between pb-2 border-b border-outline-variant">
+<span class="font-headline-md text-headline-md text-on-surface">Footwear</span>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="trending_up">trending_up</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">Momentum Score</span>
+<span class="font-number-data text-number-data text-primary text-lg">84.2</span>
+</div>
+<ul class="font-body-md text-body-md text-on-surface-variant list-disc pl-4 mt-2 space-y-1">
+<li>Driven by limited edition releases</li>
+<li>High cart-abandonment rate post-wishlist</li>
+<li>Key term: "Sneaker drop"</li>
+</ul>
+</div>
+<!-- Ethnic Card -->
+<div class="bg-surface border border-outline-variant p-4 flex flex-col gap-3">
+<div class="flex items-center justify-between pb-2 border-b border-outline-variant">
+<span class="font-headline-md text-headline-md text-on-surface">Ethnic</span>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="trending_flat">trending_flat</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase">Momentum Score</span>
+<span class="font-number-data text-number-data text-on-surface text-lg">62.8</span>
+</div>
+<ul class="font-body-md text-body-md text-on-surface-variant list-disc pl-4 mt-2 space-y-1">
+<li>Steady accumulation ahead of festive</li>
+<li>High conversion rate from wishlist</li>
+<li>Key term: "Wedding guest"</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+<hr class="border-t border-outline-variant/50 w-3/4 mx-auto"/>
+<!-- Turn 3: Declined Answer -->
+<div class="flex flex-col gap-6">
+<!-- User Query -->
+<div class="self-end max-w-[80%]">
+<div class="bg-surface-container px-5 py-3 rounded-2xl rounded-tr-sm border border-outline-variant">
+<p class="font-body-md text-body-md text-on-surface">Forecast the exact sales volume for winter jackets next week based on these wishlists.</p>
+</div>
+</div>
+<!-- AI Response (Declined) -->
+<div class="self-start max-w-[90%] flex gap-4">
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant flex items-center justify-center shrink-0 mt-1">
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]" data-icon="sparkles">arrow_back_ios_new</span>
+</div>
+<div class="flex flex-col gap-2 w-full">
+<div class="bg-transparent border border-dashed border-error p-4 flex gap-3">
+<span class="material-symbols-outlined text-error mt-0.5" data-icon="info">info</span>
+<div>
+<div class="font-headline-md text-headline-md text-on-surface mb-1 text-[16px]">Low Confidence Detection</div>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                                            I cannot accurately forecast exact sales volumes. Wishlist data correlates with intent, but external factors (pricing changes, stock availability, macro trends) heavily influence final conversion. 
+                                        </p>
+</div>
+</div>
+<div class="text-on-surface-variant font-label-md text-label-md mt-1 ml-1">
+                                    Suggested query: <a class="text-primary hover:underline" href="#">Show historical conversion rates for winter jackets.</a>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Pinned Composer Area -->
+<div class="absolute bottom-0 left-0 w-full bg-surface-container-lowest border-t border-outline-variant p-6 pt-4 flex flex-col gap-4">
+<!-- Suggestion Chips -->
+<div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+<button class="whitespace-nowrap bg-surface border border-outline-variant text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full hover:bg-surface-container transition-colors">Summarize Q2 trends</button>
+<button class="whitespace-nowrap bg-surface border border-outline-variant text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full hover:bg-surface-container transition-colors">Top emerging categories</button>
+<button class="whitespace-nowrap bg-surface border border-outline-variant text-on-surface-variant font-label-md text-label-md px-4 py-2 rounded-full hover:bg-surface-container transition-colors">Sentiment on pricing</button>
+</div>
+<!-- Input Box -->
+<div class="relative bg-surface border border-outline-variant focus-within:border-on-surface rounded-lg shadow-sm transition-colors flex items-end p-2 pl-4">
+<textarea class="w-full bg-transparent border-none focus:ring-0 resize-none font-body-md text-body-md text-on-surface placeholder-on-surface-variant/50 py-2" placeholder="Ask Copilot about your wishlist data..." rows="1"></textarea>
+<button class="mb-1 ml-2 bg-primary text-on-primary w-8 h-8 rounded flex items-center justify-center hover:opacity-90 shrink-0">
+<span class="material-symbols-outlined text-[18px]" data-icon="send">send</span>
+</button>
+</div>
+<div class="text-center font-label-md text-label-md text-on-surface-variant/70">
+                        AI can make mistakes. Verify critical data points.
+                    </div>
+</div>
+</section>
+<!-- Context Rail (40%) -->
+<section class="w-[40%] bg-surface-container-low p-container_padding overflow-y-auto flex flex-col gap-8">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+                        Active Context
+                    </h2>
+<p class="font-body-md text-body-md text-on-surface-variant mb-6">
+                        Copilot's current responses are constrained by the filters and datasets actively applied below.
+                    </p>
+<div class="flex flex-col gap-4">
+<!-- Filters -->
+<div class="bg-surface border border-outline-variant p-4">
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Applied Filters</div>
+<div class="flex flex-wrap gap-2">
+<span class="bg-secondary-container text-on-secondary-container font-label-md text-label-md px-2 py-1 rounded border border-outline-variant flex items-center gap-1">
+                                    Date: Last 90 Days
+                                </span>
+<span class="bg-secondary-container text-on-secondary-container font-label-md text-label-md px-2 py-1 rounded border border-outline-variant flex items-center gap-1">
+                                    Region: North America
+                                </span>
+</div>
+</div>
+<!-- Data Sources -->
+<div class="bg-surface border border-outline-variant p-4">
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-3">Data Sources</div>
+<ul class="space-y-3">
+<li class="flex items-center justify-between">
+<div class="flex items-center gap-2 font-body-md text-body-md text-on-surface">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="check_circle">check_circle</span>
+                                        User Wishlist DB (Live)
+                                    </div>
+<span class="font-label-md text-label-md text-on-surface-variant">1.2M rows</span>
+</li>
+<li class="flex items-center justify-between">
+<div class="flex items-center gap-2 font-body-md text-body-md text-on-surface">
+<span class="material-symbols-outlined text-primary text-[18px]" data-icon="check_circle">check_circle</span>
+                                        App Reviews (Q3)
+                                    </div>
+<span class="font-label-md text-label-md text-on-surface-variant">45k docs</span>
+</li>
+<li class="flex items-center justify-between opacity-50">
+<div class="flex items-center gap-2 font-body-md text-body-md text-on-surface">
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]" data-icon="block">block</span>
+                                        Social Listening API
+                                    </div>
+<span class="font-label-md text-label-md text-on-surface-variant">Offline</span>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<div class="mt-auto pt-8 border-t border-outline-variant">
+<h3 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4">Confidence Legend</h3>
+<div class="flex flex-col gap-3">
+<div class="flex items-start gap-3">
+<div class="w-4 h-4 border border-outline-variant bg-surface mt-0.5 shrink-0"></div>
+<div class="font-body-md text-body-md text-on-surface">
+<strong>Standard Output:</strong> Grounded in available data sets. High probability.
+                            </div>
+</div>
+<div class="flex items-start gap-3">
+<div class="w-4 h-4 border border-dashed border-error bg-transparent mt-0.5 shrink-0"></div>
+<div class="font-body-md text-body-md text-on-surface">
+<strong>Declined / Low Confidence:</strong> Insufficient data to form a definitive conclusion. Speculation avoided.
+                            </div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- NavigationDrawer (Evidence) - Hidden by default, toggled via JS class -->
+<div class="fixed right-0 top-0 h-screen w-[480px] z-50 border-l border-outline-variant bg-surface shadow-xl flex flex-col p-card_padding transform translate-x-full transition-transform duration-300 ease-in-out" id="evidence-drawer">
+<header class="flex justify-between items-start mb-8">
+<div>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">Evidence</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Verbatim quotes and source links</p>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors p-1" onclick="document.getElementById('evidence-drawer').classList.add('translate-x-full')">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</header>
+<div class="flex-1 overflow-y-auto pr-2 flex flex-col gap-6">
+<!-- Evidence Item 1 -->
+<div class="border-b border-outline-variant pb-6">
+<div class="flex items-center justify-between mb-3">
+<span class="bg-surface-container-high text-on-surface font-label-md text-label-md px-2 py-1 border border-outline-variant rounded">Source: Q3 Activewear Report</span>
+<span class="font-number-data text-number-data text-on-surface-variant">Pg 14</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface border-l-2 border-primary pl-4 italic mb-4">
+                    "Consumers are increasingly filtering activewear searches by fabric composition, with 'sustainable' and 'moisture-wicking' showing a 42% YoY increase in exact-match queries leading to wishlist actions."
+                </p>
+<button class="text-primary font-label-md text-label-md flex items-center gap-1 hover:underline">
+                    View original document <span class="material-symbols-outlined text-[14px]" data-icon="open_in_new">open_in_new</span>
+</button>
+</div>
+<!-- Evidence Item 2 -->
+<div class="border-b border-outline-variant pb-6">
+<div class="flex items-center justify-between mb-3">
+<span class="bg-surface-container-high text-on-surface font-label-md text-label-md px-2 py-1 border border-outline-variant rounded">Source: Verbatim Cluster</span>
+<span class="font-number-data text-number-data text-on-surface-variant">n=420</span>
+</div>
+<div class="flex flex-col gap-3">
+<div class="bg-surface border border-outline-variant p-3 rounded">
+<p class="font-body-md text-body-md text-on-surface">"Love the color but waiting to see if they release a sweat-proof version before buying."</p>
+</div>
+<div class="bg-surface border border-outline-variant p-3 rounded">
+<p class="font-body-md text-body-md text-on-surface">"Added to wishlist. Need to know if the fabric pilling issue is fixed in this batch."</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body></html>

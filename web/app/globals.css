@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+body {
+  background-color: #f7f4f1;
+  color: #1e1b18;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  overflow-wrap: break-word;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  font-size: 20px;
+  line-height: 1;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.card-surface {
+  background-color: #ffffff;
+  border: 1px solid #e7e1dc;
+}
+
+.hairline-b {
+  border-bottom: 1px solid #e7e1dc;
+}
+
+.hairline-t {
+  border-top: 1px solid #e7e1dc;
+}
+
+.focus-ring:focus {
+  outline: none;
+  border-color: #1e1b18;
+  box-shadow: 0 0 0 1px #1e1b18;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid #1e1b18;
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e3bdc0;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes copilot-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.copilot-dot {
+  animation: copilot-dot 1s ease-in-out infinite;
+}
+
+.copilot-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.copilot-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+.copilot-shell {
+  background: linear-gradient(180deg, #fff8f4 0%, #f7f4f1 48%, #fff8f4 100%);
+  touch-action: manipulation;
+}
+
+.copilot-scroll {
+  scrollbar-width: thin;
+}

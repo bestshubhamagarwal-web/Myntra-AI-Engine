@@ -1,0 +1,41 @@
+[project]
+name = "myntra-discovery-engine"
+version = "0.1.0"
+description = "AI-powered discovery engine for Myntra wishlist behavior"
+requires-python = ">=3.11"
+dependencies = [
+  "psycopg[binary]>=3.2",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.4",
+  "python-dotenv>=1.0",
+  "openai>=1.40",
+  "sentence-transformers>=3.0",
+  "google-play-scraper>=1.2.7",
+  "praw>=7.7",
+  "numpy>=1.26",
+  "scikit-learn>=1.3",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+discovery = "src.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "live: needs Groq API key and/or BGE-M3 weights",
+]

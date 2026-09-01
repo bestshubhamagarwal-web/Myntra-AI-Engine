@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discovery - Segments</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#33302c",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#fffbff",
+                        "tertiary-container": "#6370b7",
+                        "surface-variant": "#e9e1dc",
+                        "inverse-primary": "#ffb2ba",
+                        "on-error-container": "#93000a",
+                        "surface": "#fff8f4",
+                        "surface-bright": "#fff8f4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed-variant": "#544248",
+                        "tertiary-fixed": "#dee0ff",
+                        "outline-variant": "#e3bdc0",
+                        "surface-dim": "#e0d9d3",
+                        "on-secondary-container": "#715d64",
+                        "primary-container": "#df2457",
+                        "primary": "#b90041",
+                        "on-primary-fixed": "#400011",
+                        "secondary": "#6d5960",
+                        "surface-tint": "#bd0043",
+                        "on-secondary-fixed": "#26171d",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#f3d9e1",
+                        "surface-container": "#f4ece7",
+                        "surface-container-high": "#efe7e1",
+                        "background": "#fff8f4",
+                        "primary-fixed": "#ffd9dc",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#ffb2ba",
+                        "tertiary-fixed-dim": "#bac3ff",
+                        "inverse-on-surface": "#f7efea",
+                        "on-secondary": "#ffffff",
+                        "surface-container-low": "#faf2ed",
+                        "on-primary-container": "#fffbff",
+                        "tertiary": "#4a579d",
+                        "outline": "#8f6f72",
+                        "secondary-fixed": "#f6dce4",
+                        "surface-container-highest": "#e9e1dc",
+                        "on-surface": "#1e1b18",
+                        "secondary-fixed-dim": "#d9c0c8",
+                        "on-tertiary-fixed": "#001159",
+                        "on-surface-variant": "#5b4042",
+                        "on-background": "#1e1b18",
+                        "on-tertiary-fixed-variant": "#344186",
+                        "on-primary-fixed-variant": "#910031",
+                        "on-tertiary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "drawer_width": "480px",
+                        "base_grid": "8px",
+                        "container_padding": "32px",
+                        "sidebar_width": "240px",
+                        "gutter": "24px",
+                        "card_padding": "24px"
+                    },
+                    "fontFamily": {
+                        "display": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "number-data": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "number-data": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .heatmap-cell {
+            transition: all 0.2s ease;
+        }
+        .heatmap-cell:hover {
+            outline: 2px solid #b90041;
+            z-index: 10;
+            position: relative;
+        }
+        
+        /* Utility for low sample size fading */
+        .low-sample {
+            opacity: 0.4;
+            background-image: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,255,255,0.2) 4px, rgba(255,255,255,0.2) 8px);
+        }
+        
+        /* Heatmap colors based on intensity (0-100) using primary scale roughly */
+        .heat-0 { background-color: #fff8f4; color: #5b4042; border: 1px solid #e3bdc0; }
+        .heat-20 { background-color: #f3d9e1; color: #5b4042; }
+        .heat-40 { background-color: #e3bdc0; color: #400011; }
+        .heat-60 { background-color: #df2457; color: #ffffff; }
+        .heat-80 { background-color: #b90041; color: #ffffff; }
+        .heat-100 { background-color: #910031; color: #ffffff; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body-md antialiased flex">
+<!-- SideNavBar (JSON Component) -->
+<aside class="fixed left-0 top-0 h-screen w-[240px] border-r border-outline-variant bg-surface flex flex-col h-full py-6 z-50">
+<!-- Header -->
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary flex items-center justify-center text-on-primary font-bold shadow-sm">
+                D
+            </div>
+<div>
+<h1 class="font-display text-display font-black text-on-surface leading-tight text-xl">Discovery</h1>
+<p class="font-label-md text-label-md text-on-surface-variant">Wishlist insights</p>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<nav class="flex-1 overflow-y-auto px-2 space-y-1">
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="dataset">dataset</span>
+<span class="font-body-md text-body-md">Themes</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="fact_check">fact_check</span>
+<span class="font-body-md text-body-md">Evidence</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="category">category</span>
+<span class="font-body-md text-body-md">Categories</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="trending_up">trending_up</span>
+<span class="font-body-md text-body-md">Trends</span>
+</a>
+<!-- ACTIVE TAB: Segments -->
+<a class="flex items-center gap-3 bg-secondary-container text-on-secondary-container border-l-4 border-primary px-4 py-2 opacity-90 transition-all duration-150 rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-body-md text-body-md font-medium">Segments</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="source">source</span>
+<span class="font-body-md text-body-md">Sources</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="chat_bubble">chat_bubble</span>
+<span class="font-body-md text-body-md">Phrases</span>
+</a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="font-body-md text-body-md">Reports</span>
+</a>
+</nav>
+<!-- CTA & Footer -->
+<div class="px-6 mt-6 space-y-4">
+<button class="w-full bg-primary text-on-primary py-2 rounded-md font-body-md text-body-md flex items-center justify-center gap-2 hover:bg-surface-tint transition-colors">
+<span class="material-symbols-outlined text-sm">magic_button</span>
+                Copilot
+            </button>
+<div class="space-y-2 pt-4 border-t border-outline-variant">
+<div class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md">
+<span class="material-symbols-outlined text-sm" data-icon="update">update</span>
+                    Ingest 2h ago
+                </div>
+<div class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md">
+<span class="material-symbols-outlined text-sm" data-icon="refresh">refresh</span>
+                    Themes refreshed
+                </div>
+</div>
+</div>
+</aside>
+<!-- Main Content Wrapper (Accounts for Sidebar) -->
+<div class="flex-1 ml-[240px] flex flex-col min-h-screen">
+<!-- TopAppBar (JSON Component) -->
+<header class="docked full-width top-0 sticky z-40 border-b border-outline-variant bg-surface flex justify-between items-center h-16 px-gutter">
+<!-- Navigation Links -->
+<div class="flex items-center gap-6">
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md" href="#">Last 90 days</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md" href="#">All sources</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md" href="#">All Category</a>
+<!-- Active Header Filter matching 'Segments' context -->
+<a class="text-primary font-bold border-b-2 border-primary pb-1 font-body-md text-body-md scale-95 transition-transform" href="#">All Segment</a>
+</div>
+<!-- Actions -->
+<div class="flex items-center gap-4">
+<button class="text-primary hover:text-surface-tint font-body-md text-body-md font-medium transition-colors">Internal PM</button>
+<button class="px-4 py-1.5 border border-outline-variant rounded-md text-on-surface hover:bg-surface-container-high transition-colors font-body-md text-body-md">Share view</button>
+<div class="flex items-center gap-2 border-l border-outline-variant pl-4 ml-2">
+<button class="text-on-surface-variant hover:text-on-surface transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant border border-outline-variant overflow-hidden ml-2 cursor-pointer">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A professional headshot of an analytics user in a neutral setting, minimal lighting, clean professional aesthetic fitting a data tool." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAmQcXXFcVHq92mdUrvubTfl9DTfjGDPwvE8TmOqJwFk2Asvi4OccIiGnmy6Ikp5WY3f89qctxCIF76jJrFRayZGImeFpz9MuQAwNc7Tz0ukYNDKnIBFcep0JmEYOnyJXAb29EW5AMk_YBBtTTvVqb7LKZ-fO3Rt6JungyXG6S82J9-4sFahQHISqS17K9T3bPtdJaH3cSCD6CFlUHG4zoN-mOAKAFIMBuYA1ibZQx4ESJ6rH0AV6ySiQ"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Canvas Area -->
+<main class="flex-1 p-container_padding bg-background">
+<!-- Page Header & Segmentation Tabs -->
+<div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<h2 class="font-headline-lg text-headline-lg text-on-surface mb-2">Segment Opportunities</h2>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">
+                        Identify wishlist intensity across different customer segments to prioritize feature development and inventory planning.
+                    </p>
+</div>
+<!-- Segmentation Pivot Tabs -->
+<div class="flex bg-surface-container-low p-1 rounded-lg border border-outline-variant">
+<button class="px-4 py-1.5 font-label-md text-label-md rounded-md bg-surface shadow-sm border border-outline-variant text-on-surface">Category</button>
+<button class="px-4 py-1.5 font-label-md text-label-md rounded-md text-on-surface-variant hover:text-on-surface transition-colors">Price tier</button>
+<button class="px-4 py-1.5 font-label-md text-label-md rounded-md text-on-surface-variant hover:text-on-surface transition-colors">Platform</button>
+<button class="px-4 py-1.5 font-label-md text-label-md rounded-md text-on-surface-variant hover:text-on-surface transition-colors">Gender</button>
+</div>
+</div>
+<!-- Main Content Container: Glass/Bento style for the Heatmap -->
+<div class="bg-surface rounded-xl border border-outline-variant p-card_padding">
+<!-- Toolbar above grid -->
+<div class="flex justify-between items-center mb-6 border-b border-outline-variant pb-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant">tune</span>
+<span class="font-body-md text-body-md font-medium">Metric: Wishlist Velocity (Adds/Day)</span>
+</div>
+<!-- Legend -->
+<div class="flex items-center gap-4">
+<span class="font-label-md text-label-md text-on-surface-variant">Intensity:</span>
+<div class="flex items-center h-4">
+<div class="w-6 h-full heat-0 border-y border-l border-outline-variant"></div>
+<div class="w-6 h-full heat-20 border-y border-outline-variant"></div>
+<div class="w-6 h-full heat-40 border-y border-outline-variant"></div>
+<div class="w-6 h-full heat-60 border-y border-outline-variant"></div>
+<div class="w-6 h-full heat-80 border-y border-outline-variant"></div>
+<div class="w-6 h-full heat-100 border-y border-r border-outline-variant"></div>
+</div>
+<div class="ml-4 flex items-center gap-2">
+<div class="w-4 h-4 border border-outline-variant low-sample bg-surface"></div>
+<span class="font-label-md text-label-md text-on-surface-variant">n &lt; 20</span>
+</div>
+</div>
+</div>
+<!-- The Heatmap Grid -->
+<!-- We use a CSS Grid where the first column is sticky themes, followed by segment columns -->
+<div class="overflow-x-auto">
+<div class="min-w-[800px]">
+<!-- Grid Header Row -->
+<div class="grid grid-cols-5 gap-1 mb-2">
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider pl-2 flex items-end pb-2">Opportunity Theme</div>
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center border-b border-outline-variant pb-2">Budget</div>
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center border-b border-outline-variant pb-2">Mid-Market</div>
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center border-b border-outline-variant pb-2">Premium</div>
+<div class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider text-center border-b border-outline-variant pb-2">Unknown</div>
+</div>
+<!-- Grid Data Rows -->
+<div class="space-y-1">
+<!-- Row 1 -->
+<div class="grid grid-cols-5 gap-1 group">
+<div class="font-body-md text-body-md text-on-surface flex items-center pl-2 group-hover:bg-surface-container-low rounded-l transition-colors">Sustainable Materials</div>
+<div class="h-12 rounded heatmap-cell heat-60 flex items-center justify-center font-number-data text-number-data cursor-pointer">4.2k</div>
+<div class="h-12 rounded heatmap-cell heat-80 flex items-center justify-center font-number-data text-number-data cursor-pointer">8.1k</div>
+<div class="h-12 rounded heatmap-cell heat-100 flex items-center justify-center font-number-data text-number-data cursor-pointer">12.4k</div>
+<div class="h-12 rounded heatmap-cell heat-20 flex items-center justify-center font-number-data text-number-data cursor-pointer low-sample" title="n &lt; 20 samples">0.5k</div>
+</div>
+<!-- Row 2 -->
+<div class="grid grid-cols-5 gap-1 group">
+<div class="font-body-md text-body-md text-on-surface flex items-center pl-2 group-hover:bg-surface-container-low rounded-l transition-colors">Oversized Fits</div>
+<div class="h-12 rounded heatmap-cell heat-100 flex items-center justify-center font-number-data text-number-data cursor-pointer">15.2k</div>
+<div class="h-12 rounded heatmap-cell heat-60 flex items-center justify-center font-number-data text-number-data cursor-pointer">5.8k</div>
+<div class="h-12 rounded heatmap-cell heat-0 flex items-center justify-center font-number-data text-number-data cursor-pointer">1.1k</div>
+<div class="h-12 rounded heatmap-cell heat-40 flex items-center justify-center font-number-data text-number-data cursor-pointer">2.3k</div>
+</div>
+<!-- Row 3 -->
+<div class="grid grid-cols-5 gap-1 group">
+<div class="font-body-md text-body-md text-on-surface flex items-center pl-2 group-hover:bg-surface-container-low rounded-l transition-colors">Performance Activewear</div>
+<div class="h-12 rounded heatmap-cell heat-20 flex items-center justify-center font-number-data text-number-data cursor-pointer">1.8k</div>
+<div class="h-12 rounded heatmap-cell heat-100 flex items-center justify-center font-number-data text-number-data cursor-pointer">18.5k</div>
+<div class="h-12 rounded heatmap-cell heat-80 flex items-center justify-center font-number-data text-number-data cursor-pointer">9.2k</div>
+<div class="h-12 rounded heatmap-cell heat-0 flex items-center justify-center font-number-data text-number-data cursor-pointer low-sample" title="n &lt; 20 samples">0.2k</div>
+</div>
+<!-- Row 4 -->
+<div class="grid grid-cols-5 gap-1 group">
+<div class="font-body-md text-body-md text-on-surface flex items-center pl-2 group-hover:bg-surface-container-low rounded-l transition-colors">Vegan Leather Accessories</div>
+<div class="h-12 rounded heatmap-cell heat-40 flex items-center justify-center font-number-data text-number-data cursor-pointer">3.1k</div>
+<div class="h-12 rounded heatmap-cell heat-60 flex items-center justify-center font-number-data text-number-data cursor-pointer">6.4k</div>
+<div class="h-12 rounded heatmap-cell heat-40 flex items-center justify-center font-number-data text-number-data cursor-pointer">4.0k</div>
+<div class="h-12 rounded heatmap-cell heat-20 flex items-center justify-center font-number-data text-number-data cursor-pointer">1.5k</div>
+</div>
+<!-- Row 5 -->
+<div class="grid grid-cols-5 gap-1 group">
+<div class="font-body-md text-body-md text-on-surface flex items-center pl-2 group-hover:bg-surface-container-low rounded-l transition-colors">Vintage Wash Denim</div>
+<div class="h-12 rounded heatmap-cell heat-80 flex items-center justify-center font-number-data text-number-data cursor-pointer">7.9k</div>
+<div class="h-12 rounded heatmap-cell heat-40 flex items-center justify-center font-number-data text-number-data cursor-pointer">3.5k</div>
+<div class="h-12 rounded heatmap-cell heat-0 flex items-center justify-center font-number-data text-number-data cursor-pointer">0.8k</div>
+<div class="h-12 rounded heatmap-cell heat-20 flex items-center justify-center font-number-data text-number-data cursor-pointer low-sample" title="n &lt; 20 samples">0.6k</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discovery - Overview</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#33302c",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#fffbff",
+                        "tertiary-container": "#6370b7",
+                        "surface-variant": "#e9e1dc",
+                        "inverse-primary": "#ffb2ba",
+                        "on-error-container": "#93000a",
+                        "surface": "#fff8f4",
+                        "surface-bright": "#fff8f4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed-variant": "#544248",
+                        "tertiary-fixed": "#dee0ff",
+                        "outline-variant": "#e3bdc0",
+                        "surface-dim": "#e0d9d3",
+                        "on-secondary-container": "#715d64",
+                        "primary-container": "#df2457",
+                        "primary": "#b90041",
+                        "on-primary-fixed": "#400011",
+                        "secondary": "#6d5960",
+                        "surface-tint": "#bd0043",
+                        "on-secondary-fixed": "#26171d",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#f3d9e1",
+                        "surface-container": "#f4ece7",
+                        "surface-container-high": "#efe7e1",
+                        "background": "#fff8f4",
+                        "primary-fixed": "#ffd9dc",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#ffb2ba",
+                        "tertiary-fixed-dim": "#bac3ff",
+                        "inverse-on-surface": "#f7efea",
+                        "on-secondary": "#ffffff",
+                        "surface-container-low": "#faf2ed",
+                        "on-primary-container": "#fffbff",
+                        "tertiary": "#4a579d",
+                        "outline": "#8f6f72",
+                        "secondary-fixed": "#f6dce4",
+                        "surface-container-highest": "#e9e1dc",
+                        "on-surface": "#1e1b18",
+                        "secondary-fixed-dim": "#d9c0c8",
+                        "on-tertiary-fixed": "#001159",
+                        "on-surface-variant": "#5b4042",
+                        "on-background": "#1e1b18",
+                        "on-tertiary-fixed-variant": "#344186",
+                        "on-primary-fixed-variant": "#910031",
+                        "on-tertiary": "#ffffff",
+                        "level-0": "#F7F4F1",
+                        "level-1": "#FFFFFF",
+                        "hairline": "#E7E1DC",
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "drawer_width": "480px",
+                        "base_grid": "8px",
+                        "container_padding": "32px",
+                        "sidebar_width": "240px",
+                        "gutter": "24px",
+                        "card_padding": "24px"
+                    },
+                    "fontFamily": {
+                        "display": ["Inter", "sans-serif"],
+                        "headline-lg": ["Inter", "sans-serif"],
+                        "number-data": ["Inter", "sans-serif"],
+                        "label-md": ["Inter", "sans-serif"],
+                        "body-md": ["Inter", "sans-serif"],
+                        "headline-md": ["Inter", "sans-serif"],
+                        "body-lg": ["Inter", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "display": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "number-data": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: theme('colors.level-0'); }
+        .card-surface { background-color: theme('colors.level-1'); border: 1px solid theme('colors.hairline'); }
+        .inset-surface { background-color: theme('colors.level-0'); }
+        .hairline-b { border-bottom: 1px solid theme('colors.hairline'); }
+        .hairline-t { border-top: 1px solid theme('colors.hairline'); }
+        .hairline-r { border-right: 1px solid theme('colors.hairline'); }
+        
+        /* Bar chart styles */
+        .bar-chart-container { display: flex; flex-direction: column; gap: 8px; height: 100%; justify-content: flex-end; padding-top: 24px;}
+        .bar-col { display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 100%; flex: 1; min-width: 16px;}
+        .bar-segment { width: 100%; transition: height 0.3s ease; }
+        .bar-label { font-size: 10px; color: theme('colors.on-surface-variant'); margin-top: 4px; writing-mode: vertical-rl; transform: rotate(180deg); }
+        
+        /* Horizontal bar chart styles */
+        .hbar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .hbar-label { width: 80px; font-size: 12px; font-weight: 500; color: theme('colors.on-surface'); text-align: right; }
+        .hbar-track { flex: 1; height: 16px; background-color: theme('colors.level-0'); border-radius: 2px; overflow: hidden; }
+        .hbar-fill { height: 100%; border-radius: 2px; }
+        .hbar-value { width: 40px; font-size: 12px; color: theme('colors.on-surface-variant'); text-align: left; }
+    </style>
+</head>
+<body class="font-body-md text-body-md text-on-surface antialiased flex h-screen overflow-hidden">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-screen w-[240px] border-r border-outline-variant bg-surface dark:bg-surface-dim z-50 flex flex-col h-full py-6">
+<div class="px-gutter mb-8">
+<h1 class="font-display text-display font-black text-on-surface dark:text-on-surface-variant">Discovery</h1>
+<p class="font-label-md text-label-md text-on-surface-variant mt-1">Wishlist insights</p>
+</div>
+<div class="px-gutter mb-6">
+<button class="w-full bg-primary hover:bg-primary-container text-on-primary font-label-md text-label-md py-2 px-4 rounded-md transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">smart_toy</span>
+                Copilot
+            </button>
+</div>
+<ul class="flex-1 overflow-y-auto space-y-1">
+<li><a class="flex items-center gap-3 bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary border-l-4 border-primary px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors opacity-90 transition-all duration-150" href="#"><span class="material-symbols-outlined">dashboard</span>Overview</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">dataset</span>Themes</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">fact_check</span>Evidence</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">category</span>Categories</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">trending_up</span>Trends</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">groups</span>Segments</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">source</span>Sources</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">chat_bubble</span>Phrases</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#"><span class="material-symbols-outlined">description</span>Reports</a></li>
+</ul>
+<div class="px-4 pt-4 mt-auto hairline-t space-y-2">
+<div class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">update</span>Ingest 2h ago</div>
+<div class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">refresh</span>Themes refreshed</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 ml-[240px] flex flex-col h-screen overflow-hidden bg-level-0">
+<!-- TopAppBar -->
+<header class="docked full-width top-0 sticky z-40 border-b border-outline-variant bg-surface dark:bg-surface-dim flex justify-between items-center h-16 px-gutter shrink-0">
+<div class="flex items-center gap-8">
+<!-- Navigation Links for Top Bar Context -->
+<nav class="hidden lg:flex gap-6">
+<a class="text-primary font-bold border-b-2 border-primary pb-1 font-body-md text-body-md hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors scale-95 transition-transform" href="#">Last 90 days</a>
+<a class="text-on-surface-variant dark:text-surface-variant font-body-md text-body-md hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors py-1" href="#">All sources</a>
+<a class="text-on-surface-variant dark:text-surface-variant font-body-md text-body-md hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors py-1" href="#">All Category</a>
+<a class="text-on-surface-variant dark:text-surface-variant font-body-md text-body-md hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors py-1" href="#">All Segment</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="hidden md:block px-4 py-1.5 border border-hairline rounded-md text-on-surface font-label-md text-label-md hover:bg-surface-container-low transition-colors">Share view</button>
+<div class="flex items-center gap-2">
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded-full hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="text-on-surface-variant hover:text-on-surface p-1 rounded-full hover:bg-surface-container-low transition-colors"><span class="material-symbols-outlined">settings</span></button>
+</div>
+<div class="w-8 h-8 rounded-full bg-secondary-container overflow-hidden border border-hairline ml-2 flex items-center justify-center text-primary font-bold">
+<span class="material-symbols-outlined text-[20px]">person</span>
+</div>
+</div>
+</header>
+<!-- Main Scrollable Canvas -->
+<main class="flex-1 overflow-y-auto p-container_padding">
+<div class="max-w-[1400px] mx-auto space-y-8">
+<!-- Alert Banner -->
+<div class="bg-surface card-surface rounded-lg p-4 flex items-start gap-3 shadow-sm">
+<span class="material-symbols-outlined text-error shrink-0">error</span>
+<div class="flex-1">
+<h4 class="font-number-data text-number-data font-semibold text-on-surface">Play Store ingest failure</h4>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Data from Google Play Store reviews has not updated in the last 24 hours. The engineering team is investigating.</p>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">close</span></button>
+</div>
+<!-- KPI Cards Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<div class="card-surface rounded-lg p-6 flex flex-col justify-between h-[120px]">
+<div class="font-label-md text-label-md text-on-surface-variant">Eligible corpus</div>
+<div class="font-display text-display text-on-surface">12,480</div>
+</div>
+<div class="card-surface rounded-lg p-6 flex flex-col justify-between h-[120px]">
+<div class="font-label-md text-label-md text-on-surface-variant">Live sources</div>
+<div class="font-display text-display text-on-surface flex items-baseline gap-2">4 <span class="font-headline-md text-headline-md text-on-surface-variant">/ 6</span></div>
+</div>
+<div class="card-surface rounded-lg p-6 flex flex-col justify-between h-[120px]">
+<div class="font-label-md text-label-md text-on-surface-variant">Opportunity areas</div>
+<div class="font-display text-display text-on-surface">11</div>
+</div>
+<div class="card-surface rounded-lg p-6 flex flex-col justify-between h-[120px]">
+<div class="font-label-md text-label-md text-on-surface-variant">Confidence</div>
+<div class="font-display text-display text-primary">0.71</div>
+</div>
+</div>
+<!-- Main Bento Grid -->
+<div class="grid grid-cols-12 gap-6 auto-rows-min">
+<!-- 12-week stacked bar chart (Spans 8 cols) -->
+<div class="col-span-12 lg:col-span-8 card-surface rounded-lg flex flex-col min-h-[360px]">
+<div class="p-4 hairline-b flex justify-between items-center">
+<h2 class="font-headline-md text-headline-md text-on-surface">Documents by Source</h2>
+<span class="font-label-md text-label-md text-on-surface-variant bg-level-0 px-2 py-1 rounded">12 Weeks</span>
+</div>
+<div class="flex-1 p-6 flex gap-2 bar-chart-container inset-surface mx-6 my-4 rounded-md">
+<!-- Dummy Data for 12 weeks stacked -->
+<div class="flex justify-around h-[200px] w-full items-end gap-1">
+<!-- Week 1 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 10%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 30%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 20%;"></div>
+</div>
+<span class="bar-label">W1</span>
+</div>
+<!-- Week 2 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 15%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 25%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 25%;"></div>
+</div>
+<span class="bar-label">W2</span>
+</div>
+<!-- Week 3 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 20%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 40%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 10%;"></div>
+</div>
+<span class="bar-label">W3</span>
+</div>
+<!-- Week 4 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 10%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 35%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 15%;"></div>
+</div>
+<span class="bar-label">W4</span>
+</div>
+<!-- Week 5 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 30%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 20%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 30%;"></div>
+</div>
+<span class="bar-label">W5</span>
+</div>
+<!-- Week 6 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 25%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 45%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 10%;"></div>
+</div>
+<span class="bar-label">W6</span>
+</div>
+<!-- Week 7 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 40%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 30%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 10%;"></div>
+</div>
+<span class="bar-label">W7</span>
+</div>
+<!-- Week 8 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 35%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 20%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 25%;"></div>
+</div>
+<span class="bar-label">W8</span>
+</div>
+<!-- Week 9 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 20%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 50%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 15%;"></div>
+</div>
+<span class="bar-label">W9</span>
+</div>
+<!-- Week 10 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 15%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 40%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 20%;"></div>
+</div>
+<span class="bar-label">W10</span>
+</div>
+<!-- Week 11 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 45%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 25%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 10%;"></div>
+</div>
+<span class="bar-label">W11</span>
+</div>
+<!-- Week 12 -->
+<div class="bar-col">
+<div class="w-full flex flex-col justify-end h-full">
+<div class="bar-segment bg-primary" style="height: 30%;"></div>
+<div class="bar-segment bg-tertiary" style="height: 30%;"></div>
+<div class="bar-segment bg-surface-variant" style="height: 30%;"></div>
+</div>
+<span class="bar-label">W12</span>
+</div>
+</div>
+</div>
+<div class="px-6 pb-6 flex gap-4 justify-center">
+<div class="flex items-center gap-1 font-label-md text-label-md text-on-surface-variant"><span class="w-3 h-3 bg-primary rounded-sm inline-block"></span> App Store</div>
+<div class="flex items-center gap-1 font-label-md text-label-md text-on-surface-variant"><span class="w-3 h-3 bg-tertiary rounded-sm inline-block"></span> Zendesk</div>
+<div class="flex items-center gap-1 font-label-md text-label-md text-on-surface-variant"><span class="w-3 h-3 bg-surface-variant rounded-sm inline-block"></span> Intercom</div>
+</div>
+</div>
+<!-- Horizontal Bar Chart (Spans 4 cols) -->
+<div class="col-span-12 lg:col-span-4 card-surface rounded-lg flex flex-col min-h-[360px]">
+<div class="p-4 hairline-b">
+<h2 class="font-headline-md text-headline-md text-on-surface">Category Mix</h2>
+</div>
+<div class="p-6 flex-1 flex flex-col justify-center">
+<div class="hbar-row">
+<div class="hbar-label">Usability</div>
+<div class="hbar-track"><div class="hbar-fill bg-primary" style="width: 85%;"></div></div>
+<div class="hbar-value">85%</div>
+</div>
+<div class="hbar-row">
+<div class="hbar-label">Pricing</div>
+<div class="hbar-track"><div class="hbar-fill bg-tertiary" style="width: 62%;"></div></div>
+<div class="hbar-value">62%</div>
+</div>
+<div class="hbar-row">
+<div class="hbar-label">Features</div>
+<div class="hbar-track"><div class="hbar-fill bg-surface-variant" style="width: 45%;"></div></div>
+<div class="hbar-value">45%</div>
+</div>
+<div class="hbar-row">
+<div class="hbar-label">Support</div>
+<div class="hbar-track"><div class="hbar-fill bg-outline" style="width: 28%;"></div></div>
+<div class="hbar-value">28%</div>
+</div>
+<div class="hbar-row">
+<div class="hbar-label">Bugs</div>
+<div class="hbar-track"><div class="hbar-fill bg-secondary" style="width: 15%;"></div></div>
+<div class="hbar-value">15%</div>
+</div>
+</div>
+</div>
+<!-- Intent Split Tiles (Spans 6 cols each) -->
+<div class="col-span-12 lg:col-span-6 card-surface rounded-lg p-6 flex flex-col gap-4">
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center justify-between">
+                            Near-term Intent
+                            <span class="material-symbols-outlined text-primary">bolt</span>
+</h3>
+<div class="flex-1 inset-surface rounded-md p-4 flex flex-col justify-center items-center">
+<div class="font-display text-[48px] font-black text-on-surface">42%</div>
+<p class="font-body-md text-body-md text-on-surface-variant text-center max-w-[250px] mt-2">Corpus items expressing immediate intent to purchase, upgrade, or churn.</p>
+</div>
+</div>
+<div class="col-span-12 lg:col-span-6 card-surface rounded-lg p-6 flex flex-col gap-4">
+<h3 class="font-headline-md text-headline-md text-on-surface flex items-center justify-between">
+                            Passive Intent
+                            <span class="material-symbols-outlined text-secondary">sleep</span>
+</h3>
+<div class="flex-1 inset-surface rounded-md p-4 flex flex-col justify-center items-center">
+<div class="font-display text-[48px] font-black text-on-surface">58%</div>
+<p class="font-body-md text-body-md text-on-surface-variant text-center max-w-[250px] mt-2">Corpus items indicating passive browsing, general feedback, or feature requests without timeline.</p>
+</div>
+</div>
+<!-- Ranked Top 5 Themes (Spans 12 cols) -->
+<div class="col-span-12 card-surface rounded-lg flex flex-col mb-8">
+<div class="p-4 hairline-b">
+<h2 class="font-headline-md text-headline-md text-on-surface">Top 5 Emerging Themes</h2>
+</div>
+<div class="p-0">
+<!-- List Header -->
+<div class="grid grid-cols-12 gap-4 px-6 py-3 bg-level-0 font-label-md text-label-md text-on-surface-variant hairline-b">
+<div class="col-span-1">Rank</div>
+<div class="col-span-5">Theme</div>
+<div class="col-span-3">Volume</div>
+<div class="col-span-3">Trend</div>
+</div>
+<!-- List Items -->
+<div class="grid grid-cols-12 gap-4 px-6 py-4 hairline-b hover:bg-level-0 transition-colors items-center">
+<div class="col-span-1 font-number-data text-number-data text-on-surface font-bold">1</div>
+<div class="col-span-5 font-body-md text-body-md text-on-surface font-medium">"Integration with Slack is broken"</div>
+<div class="col-span-3 font-number-data text-number-data text-on-surface-variant">1,245 mentions</div>
+<div class="col-span-3 flex items-center gap-1 text-error font-label-md"><span class="material-symbols-outlined text-[16px]">trending_up</span> +45%</div>
+</div>
+<div class="grid grid-cols-12 gap-4 px-6 py-4 hairline-b hover:bg-level-0 transition-colors items-center">
+<div class="col-span-1 font-number-data text-number-data text-on-surface font-bold">2</div>
+<div class="col-span-5 font-body-md text-body-md text-on-surface font-medium">"Need dark mode for dashboard"</div>
+<div class="col-span-3 font-number-data text-number-data text-on-surface-variant">980 mentions</div>
+<div class="col-span-3 flex items-center gap-1 text-primary font-label-md"><span class="material-symbols-outlined text-[16px]">trending_up</span> +22%</div>
+</div>
+<div class="grid grid-cols-12 gap-4 px-6 py-4 hairline-b hover:bg-level-0 transition-colors items-center">
+<div class="col-span-1 font-number-data text-number-data text-on-surface font-bold">3</div>
+<div class="col-span-5 font-body-md text-body-md text-on-surface font-medium">"Export to PDF formatting issues"</div>
+<div class="col-span-3 font-number-data text-number-data text-on-surface-variant">850 mentions</div>
+<div class="col-span-3 flex items-center gap-1 text-on-surface-variant font-label-md"><span class="material-symbols-outlined text-[16px]">trending_flat</span> +2%</div>
+</div>
+<div class="grid grid-cols-12 gap-4 px-6 py-4 hairline-b hover:bg-level-0 transition-colors items-center">
+<div class="col-span-1 font-number-data text-number-data text-on-surface font-bold">4</div>
+<div class="col-span-5 font-body-md text-body-md text-on-surface font-medium">"Mobile app crashes on login"</div>
+<div class="col-span-3 font-number-data text-number-data text-on-surface-variant">620 mentions</div>
+<div class="col-span-3 flex items-center gap-1 text-error font-label-md"><span class="material-symbols-outlined text-[16px]">trending_up</span> +15%</div>
+</div>
+<div class="grid grid-cols-12 gap-4 px-6 py-4 hover:bg-level-0 transition-colors items-center">
+<div class="col-span-1 font-number-data text-number-data text-on-surface font-bold">5</div>
+<div class="col-span-5 font-body-md text-body-md text-on-surface font-medium">"Request for API rate limit increase"</div>
+<div class="col-span-3 font-number-data text-number-data text-on-surface-variant">410 mentions</div>
+<div class="col-span-3 flex items-center gap-1 text-on-surface-variant font-label-md"><span class="material-symbols-outlined text-[16px]">trending_down</span> -5%</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

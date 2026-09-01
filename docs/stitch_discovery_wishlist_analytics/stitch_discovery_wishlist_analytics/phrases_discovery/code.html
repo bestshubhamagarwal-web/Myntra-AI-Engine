@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discovery - Phrases</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#33302c",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#fffbff",
+                        "tertiary-container": "#6370b7",
+                        "surface-variant": "#e9e1dc",
+                        "inverse-primary": "#ffb2ba",
+                        "on-error-container": "#93000a",
+                        "surface": "#fff8f4",
+                        "surface-bright": "#fff8f4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed-variant": "#544248",
+                        "tertiary-fixed": "#dee0ff",
+                        "outline-variant": "#e3bdc0",
+                        "surface-dim": "#e0d9d3",
+                        "on-secondary-container": "#715d64",
+                        "primary-container": "#df2457",
+                        "primary": "#b90041",
+                        "on-primary-fixed": "#400011",
+                        "secondary": "#6d5960",
+                        "surface-tint": "#bd0043",
+                        "on-secondary-fixed": "#26171d",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#f3d9e1",
+                        "surface-container": "#f4ece7",
+                        "surface-container-high": "#efe7e1",
+                        "background": "#fff8f4",
+                        "primary-fixed": "#ffd9dc",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#ffb2ba",
+                        "tertiary-fixed-dim": "#bac3ff",
+                        "inverse-on-surface": "#f7efea",
+                        "on-secondary": "#ffffff",
+                        "surface-container-low": "#faf2ed",
+                        "on-primary-container": "#fffbff",
+                        "tertiary": "#4a579d",
+                        "outline": "#8f6f72",
+                        "secondary-fixed": "#f6dce4",
+                        "surface-container-highest": "#e9e1dc",
+                        "on-surface": "#1e1b18",
+                        "secondary-fixed-dim": "#d9c0c8",
+                        "on-tertiary-fixed": "#001159",
+                        "on-surface-variant": "#5b4042",
+                        "on-background": "#1e1b18",
+                        "on-tertiary-fixed-variant": "#344186",
+                        "on-primary-fixed-variant": "#910031",
+                        "on-tertiary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "drawer_width": "480px",
+                        "base_grid": "8px",
+                        "container_padding": "32px",
+                        "sidebar_width": "240px",
+                        "gutter": "24px",
+                        "card_padding": "24px"
+                    },
+                    "fontFamily": {
+                        "display": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "number-data": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "number-data": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #F7F4F1; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .hairline-border { border: 1px solid #E7E1DC; }
+        .hairline-b { border-bottom: 1px solid #E7E1DC; }
+        .hairline-t { border-top: 1px solid #E7E1DC; }
+        .hairline-r { border-right: 1px solid #E7E1DC; }
+        
+        /* Word cloud simulation */
+        .phrase-cloud { position: relative; height: 100%; width: 100%; }
+        .phrase-item { position: absolute; white-space: nowrap; transition: all 0.3s ease; }
+        .phrase-item:hover { transform: scale(1.05); z-index: 10; cursor: pointer; }
+    </style>
+</head>
+<body class="bg-background text-on-background flex h-screen overflow-hidden">
+<!-- SideNavBar (JSON Component) -->
+<nav class="fixed left-0 top-0 h-screen w-[240px] border-r border-outline-variant bg-surface dark:bg-surface-dim z-30 flex flex-col py-6">
+<div class="px-gutter mb-8">
+<h1 class="font-display text-display font-black text-on-surface dark:text-on-surface-variant">Discovery</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Wishlist insights</p>
+</div>
+<div class="flex-1 overflow-y-auto w-full">
+<ul class="flex flex-col gap-1 w-full font-body-md text-body-md">
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+                        Overview
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">dataset</span>
+                        Themes
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">fact_check</span>
+                        Evidence
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">category</span>
+                        Categories
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">trending_up</span>
+                        Trends
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">groups</span>
+                        Segments
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">source</span>
+                        Sources
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 bg-secondary-container dark:bg-secondary text-on-secondary-container dark:text-on-secondary border-l-4 border-primary px-4 py-2 opacity-90 transition-all duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+                        Phrases
+                    </a>
+</li>
+<li>
+<a class="flex items-center gap-3 text-on-surface-variant dark:text-surface-variant px-4 py-2 hover:bg-surface-container-high dark:hover:bg-surface-container-highest transition-colors" href="#">
+<span class="material-symbols-outlined">description</span>
+                        Reports
+                    </a>
+</li>
+</ul>
+</div>
+<div class="mt-auto px-4 w-full">
+<button class="w-full flex items-center justify-center gap-2 bg-primary text-on-primary py-2 px-4 rounded-md font-body-md text-body-md mb-6 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined">smart_toy</span>
+                Copilot
+            </button>
+<div class="flex flex-col gap-2 font-label-md text-label-md text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">update</span>
+                    Ingest 2h ago
+                </div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">refresh</span>
+                    Themes refreshed
+                </div>
+</div>
+</div>
+</nav>
+<!-- Main Content Wrapper -->
+<div class="flex-1 flex flex-col ml-[240px] h-screen bg-[#F7F4F1]">
+<!-- TopAppBar (JSON Component) -->
+<header class="flex justify-between items-center h-16 px-gutter docked full-width top-0 sticky z-40 border-b border-outline-variant bg-surface dark:bg-surface-dim">
+<div class="flex items-center gap-6">
+<!-- Navigation Links from JSON -->
+<nav class="flex gap-6 font-headline-md text-headline-md text-on-surface-variant dark:text-surface-variant">
+<a class="hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors" href="#">Last 90 days</a>
+<a class="hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors" href="#">All sources</a>
+<a class="hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors" href="#">All Category</a>
+<a class="hover:text-on-surface dark:hover:text-inverse-on-surface transition-colors" href="#">All Segment</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="font-body-md text-body-md text-primary dark:text-primary-fixed hover:opacity-80 transition-opacity">Internal PM</button>
+<button class="font-body-md text-body-md border border-outline-variant px-3 py-1 rounded hover:bg-surface-container-high transition-colors text-on-surface">Share view</button>
+<div class="flex gap-2 text-on-surface-variant">
+<button class="p-1 hover:bg-surface-container-high rounded-full transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="p-1 hover:bg-surface-container-high rounded-full transition-colors"><span class="material-symbols-outlined">settings</span></button>
+</div>
+<div class="w-8 h-8 rounded-full bg-secondary-container overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A small, professional user avatar portrait of an analyst in a minimalist, light-mode analytics dashboard setting, clean high-key lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD_Em3oWg_N2SlcFTKkImfn4wKUixleEM6CsD3o7rvMy6EJgLq9jtJacEvpdVrt76POL79BX6JLN_riqnANTkwTDAbDhIFgTiStF8xGtr2KNGsVlV-8hqN7kaFIDD8MV7VpUzm6p5pV0tZNBVNJLBWBXsz6YhlKaKwn9AsYFijohLovwAZIGn8Fnhb4wZEDACNMvrjGR-sh6mfY6WSZ8KWqWQvafMaVUC2T62cZF4kLnwpK5vPwuNeGsA"/>
+</div>
+</div>
+</header>
+<!-- Main Dashboard Canvas -->
+<main class="flex-1 p-[32px] overflow-hidden flex gap-[32px]">
+<!-- Left Pane: N-gram Table -->
+<div class="w-1/2 h-full flex flex-col bg-surface hairline-border rounded-lg shadow-sm overflow-hidden">
+<div class="p-4 hairline-b flex justify-between items-center bg-surface-container-lowest">
+<h2 class="font-headline-md text-headline-md text-on-surface">N-gram Frequency</h2>
+<div class="flex gap-2">
+<button class="p-1 hover:bg-surface-container-high rounded transition-colors text-on-surface-variant"><span class="material-symbols-outlined">filter_list</span></button>
+<button class="p-1 hover:bg-surface-container-high rounded transition-colors text-on-surface-variant"><span class="material-symbols-outlined">more_vert</span></button>
+</div>
+</div>
+<div class="flex-1 overflow-auto bg-[#F7F4F1]"> <!-- Inlay -->
+<table class="w-full text-left font-body-md text-body-md">
+<thead class="sticky top-0 bg-surface-container-low hairline-b text-on-surface-variant font-label-md text-label-md uppercase tracking-wider">
+<tr>
+<th class="p-4 font-medium">Phrase</th>
+<th class="p-4 font-medium text-right w-24">Count</th>
+<th class="p-4 font-medium w-32">Sentiment</th>
+</tr>
+</thead>
+<tbody class="bg-surface divide-y divide-[#E7E1DC]">
+<tr class="hover:bg-[#F7F4F1] transition-colors cursor-pointer group">
+<td class="p-4 font-number-data text-number-data text-on-surface font-medium">runs small</td>
+<td class="p-4 text-right text-on-surface-variant font-number-data text-number-data">1,245</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border border-dashed border-error text-error bg-transparent">
+                                        Negative
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-[#F7F4F1] transition-colors cursor-pointer group">
+<td class="p-4 font-number-data text-number-data text-on-surface font-medium">perfect fit</td>
+<td class="p-4 text-right text-on-surface-variant font-number-data text-number-data">982</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-tertiary-container/20 text-tertiary">
+                                        Positive
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-[#F7F4F1] transition-colors cursor-pointer group">
+<td class="p-4 font-number-data text-number-data text-on-surface font-medium">return pickup</td>
+<td class="p-4 text-right text-on-surface-variant font-number-data text-number-data">843</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border border-dashed border-error text-error bg-transparent">
+                                        Negative
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-[#F7F4F1] transition-colors cursor-pointer bg-secondary-container/30">
+<td class="p-4 font-number-data text-number-data text-primary font-medium">fabric quality</td>
+<td class="p-4 text-right text-on-surface-variant font-number-data text-number-data">756</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-variant text-on-surface-variant">
+                                        Neutral
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-[#F7F4F1] transition-colors cursor-pointer group">
+<td class="p-4 font-number-data text-number-data text-on-surface font-medium">true to size</td>
+<td class="p-4 text-right text-on-surface-variant font-number-data text-number-data">621</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-tertiary-container/20 text-tertiary">
+                                        Positive
+                                    </span>
+</td>
+</tr>
+<tr class="hover:bg-[#F7F4F1] transition-colors cursor-pointer group">
+<td class="p-4 font-number-data text-number-data text-on-surface font-medium">customer service</td>
+<td class="p-4 text-right text-on-surface-variant font-number-data text-number-data">512</td>
+<td class="p-4">
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border border-dashed border-error text-error bg-transparent">
+                                        Negative
+                                    </span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Right Pane: Phrase Cloud (Empty State) -->
+<div class="w-1/2 h-full flex flex-col bg-surface hairline-border rounded-lg shadow-sm overflow-hidden">
+<div class="p-4 hairline-b flex justify-between items-center bg-surface-container-lowest">
+<h2 class="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
+                        Filtered Phrase Cloud
+                        <span class="text-on-surface-variant font-body-md text-body-md">(Fabric Quality)</span>
+</h2>
+<button class="text-primary hover:text-surface-tint font-label-md text-label-md font-medium transition-colors">Clear Filter</button>
+</div>
+<div class="flex-1 p-6 flex items-center justify-center bg-[#F7F4F1] relative overflow-hidden">
+<!-- Simulated Word Cloud using absolute positioning for a structural feel -->
+<div class="phrase-cloud">
+<div class="phrase-item text-primary font-bold" style="top: 40%; left: 30%; font-size: 48px;">pilling easily</div>
+<div class="phrase-item text-on-surface-variant" style="top: 25%; left: 60%; font-size: 24px; opacity: 0.8;">thin material</div>
+<div class="phrase-item text-error" style="top: 60%; left: 45%; font-size: 32px;">itchy sweater</div>
+<div class="phrase-item text-tertiary" style="top: 75%; left: 20%; font-size: 28px;">very soft</div>
+<div class="phrase-item text-on-surface-variant" style="top: 15%; left: 35%; font-size: 18px; opacity: 0.7;">faded after wash</div>
+<div class="phrase-item text-on-surface" style="top: 50%; left: 70%; font-size: 20px; font-weight: 500;">stretchy</div>
+<div class="phrase-item text-error opacity-80" style="top: 35%; left: 15%; font-size: 22px;">shrunk in dryer</div>
+<div class="phrase-item text-primary opacity-60" style="top: 80%; left: 65%; font-size: 16px;">feels cheap</div>
+<!-- Empty State (Hidden in this view, but structure provided)
+                        <div class="absolute inset-0 flex flex-col items-center justify-center text-on-surface-variant">
+                            <span class="material-symbols-outlined text-[48px] mb-4 opacity-50">cloud_off</span>
+                            <p class="font-body-lg text-body-lg text-center max-w-[250px]">Select a theme from the left pane to generate a filtered phrase cloud.</p>
+                        </div>
+                        -->
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

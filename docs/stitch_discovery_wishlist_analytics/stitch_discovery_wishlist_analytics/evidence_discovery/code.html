@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Evidence Table - Discovery</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-surface": "#33302c",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#fffbff",
+                        "tertiary-container": "#6370b7",
+                        "surface-variant": "#e9e1dc",
+                        "inverse-primary": "#ffb2ba",
+                        "on-error-container": "#93000a",
+                        "surface": "#fff8f4",
+                        "surface-bright": "#fff8f4",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed-variant": "#544248",
+                        "tertiary-fixed": "#dee0ff",
+                        "outline-variant": "#e3bdc0",
+                        "surface-dim": "#e0d9d3",
+                        "on-secondary-container": "#715d64",
+                        "primary-container": "#df2457",
+                        "primary": "#b90041",
+                        "on-primary-fixed": "#400011",
+                        "secondary": "#6d5960",
+                        "surface-tint": "#bd0043",
+                        "on-secondary-fixed": "#26171d",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#f3d9e1",
+                        "surface-container": "#f4ece7",
+                        "surface-container-high": "#efe7e1",
+                        "background": "#fff8f4",
+                        "primary-fixed": "#ffd9dc",
+                        "error": "#ba1a1a",
+                        "primary-fixed-dim": "#ffb2ba",
+                        "tertiary-fixed-dim": "#bac3ff",
+                        "inverse-on-surface": "#f7efea",
+                        "on-secondary": "#ffffff",
+                        "surface-container-low": "#faf2ed",
+                        "on-primary-container": "#fffbff",
+                        "tertiary": "#4a579d",
+                        "outline": "#8f6f72",
+                        "secondary-fixed": "#f6dce4",
+                        "surface-container-highest": "#e9e1dc",
+                        "on-surface": "#1e1b18",
+                        "secondary-fixed-dim": "#d9c0c8",
+                        "on-tertiary-fixed": "#001159",
+                        "on-surface-variant": "#5b4042",
+                        "on-background": "#1e1b18",
+                        "on-tertiary-fixed-variant": "#344186",
+                        "on-primary-fixed-variant": "#910031",
+                        "on-tertiary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "drawer_width": "480px",
+                        "base_grid": "8px",
+                        "container_padding": "32px",
+                        "sidebar_width": "240px",
+                        "gutter": "24px",
+                        "card_padding": "24px"
+                    },
+                    "fontFamily": {
+                        "display": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "number-data": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "display": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "number-data": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined';
+            font-weight: normal;
+            font-style: normal;
+            font-size: 20px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
+        }
+        /* Custom scrollbar for dense tables */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #e9e1dc; 
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #e3bdc0; 
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-md antialiased overflow-x-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-screen w-[240px] border-r border-outline-variant bg-surface flex flex-col py-6 z-50">
+<!-- Header -->
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-8 h-8 rounded-DEFAULT bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">dataset</span>
+</div>
+<div>
+<h1 class="font-display text-[20px] font-black text-on-surface leading-tight tracking-tight">Discovery</h1>
+<p class="font-label-md text-label-md text-on-surface-variant">Wishlist insights</p>
+</div>
+</div>
+<!-- CTA -->
+<div class="px-4 mb-6">
+<button class="w-full flex items-center justify-center gap-2 bg-surface text-on-surface border border-outline-variant hover:bg-surface-container-high transition-colors rounded-DEFAULT py-2 px-4 font-label-md text-label-md">
+<span class="material-symbols-outlined text-[18px]">temp_preferences_custom</span>
+                Copilot
+            </button>
+</div>
+<!-- Navigation Tabs -->
+<div class="flex-1 overflow-y-auto px-2 flex flex-col gap-1 font-body-md text-body-md">
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+                Overview
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">dataset</span>
+                Themes
+            </a>
+<!-- ACTIVE TAB: Evidence -->
+<a class="flex items-center gap-3 bg-secondary-container text-on-secondary-container border-l-4 border-primary px-4 py-2 opacity-90 transition-all duration-150 rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">fact_check</span>
+                Evidence
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">category</span>
+                Categories
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">trending_up</span>
+                Trends
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">groups</span>
+                Segments
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">source</span>
+                Sources
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+                Phrases
+            </a>
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-DEFAULT" href="#">
+<span class="material-symbols-outlined">description</span>
+                Reports
+            </a>
+</div>
+<!-- Footer Tabs -->
+<div class="px-4 mt-auto pt-4 border-t border-outline-variant flex flex-col gap-2">
+<div class="flex items-center gap-3 text-on-surface-variant font-label-md text-label-md">
+<span class="material-symbols-outlined text-[16px]">update</span>
+                Ingest 2h ago
+            </div>
+<div class="flex items-center gap-3 text-on-surface-variant font-label-md text-label-md">
+<span class="material-symbols-outlined text-[16px]">refresh</span>
+                Themes refreshed
+            </div>
+</div>
+</nav>
+<!-- TopAppBar -->
+<header class="docked full-width top-0 sticky z-40 border-b border-outline-variant bg-surface flex justify-between items-center h-16 px-gutter ml-[240px]">
+<!-- Nav Links (Filters) -->
+<div class="flex items-center gap-6 font-label-md text-label-md">
+<a class="text-primary font-bold border-b-2 border-primary pb-1" href="#">Last 90 days</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">All sources</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">All Category</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">All Segment</a>
+</div>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-on-surface transition-colors font-label-md text-label-md">Internal PM</button>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors font-label-md text-label-md border border-outline-variant px-3 py-1 rounded-DEFAULT">Share view</button>
+<div class="w-px h-6 bg-outline-variant mx-2"></div>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant ml-2 overflow-hidden border border-outline-variant">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A minimalist, professional corporate headshot of a user against a neutral grey background, high contrast lighting, black and white aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBDu_KRluktVVW2y5f3NF-LE5MzoP_WeIArWyeO_eAoPSI2jxgy2tR_0UUZIOYhRALmAX4j282tzEnIW5_3Q8flkG6XkFrOBh8NpZwtHh6hCjz5cjnKRoExcJDLcFr0gQ8YvhNW01jUoEtWYh7IZIw4z6D0-Hj_SMQbLEGCJH1-N6gWgCNauQ4GOnmoy9XOD2dYjpOvThDYMrloEcr1s7Qc25dNaWYlj7WozOnmc8gt-aBbssMXKn0aHA"/>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-[240px] p-container_padding flex flex-col gap-6 min-h-[calc(100vh-64px)]">
+<!-- Toolbar -->
+<div class="flex items-center justify-between w-full">
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
+<input class="w-full pl-10 pr-4 py-2 bg-surface border border-outline-variant rounded-DEFAULT focus:outline-none focus:border-on-surface focus:ring-1 focus:ring-on-surface font-body-md text-body-md text-on-surface placeholder:text-on-surface-variant transition-all" placeholder="Search verbatim, keywords, or source..." type="text"/>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-label-md text-label-md text-on-surface-variant mr-2">Filter by:</span>
+<button class="flex items-center gap-1 px-3 py-1.5 bg-surface border border-outline-variant rounded-full font-label-md text-label-md text-on-surface hover:bg-surface-container-low transition-colors">
+                    Friction: High
+                    <span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+<button class="flex items-center gap-1 px-3 py-1.5 bg-surface border border-outline-variant rounded-full font-label-md text-label-md text-on-surface hover:bg-surface-container-low transition-colors">
+                    Intent: Purchase
+                    <span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+<button class="flex items-center gap-1 px-3 py-1.5 border border-dashed border-outline-variant rounded-full font-label-md text-label-md text-on-surface-variant hover:bg-surface transition-colors">
+<span class="material-symbols-outlined text-[14px]">add</span>
+                    Add Filter
+                </button>
+</div>
+</div>
+<!-- Evidence Table Card -->
+<div class="bg-surface border border-outline-variant rounded-DEFAULT overflow-hidden flex flex-col flex-1">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse whitespace-nowrap">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container-lowest font-label-md text-label-md text-on-surface-variant">
+<th class="py-3 px-4 font-medium sticky left-0 bg-surface-container-lowest z-10 w-24">Date</th>
+<th class="py-3 px-4 font-medium w-32">Source</th>
+<th class="py-3 px-4 font-medium w-[400px]">Quote (Verbatim)</th>
+<th class="py-3 px-4 font-medium">Theme</th>
+<th class="py-3 px-4 font-medium">Intent Mode</th>
+<th class="py-3 px-4 font-medium">Friction</th>
+<th class="py-3 px-4 font-medium">Category</th>
+<th class="py-3 px-4 font-medium">Confidence</th>
+<th class="py-3 px-4 font-medium text-center w-16">Link</th>
+</tr>
+</thead>
+<tbody class="font-body-md text-body-md text-on-surface">
+<!-- Row 1: High Friction, Hinglish -->
+<tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors group">
+<td class="py-3 px-4 text-on-surface-variant sticky left-0 group-hover:bg-surface-container-low bg-surface z-10 transition-colors">Oct 24, 09:15</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<span class="w-5 h-5 rounded-sm bg-[#000000] flex items-center justify-center text-white text-[10px] font-bold">X</span>
+                                    Twitter
+                                </div>
+</td>
+<td class="py-3 px-4 max-w-[400px]">
+<p class="line-clamp-2 text-wrap whitespace-normal text-on-surface leading-snug">
+                                    Payment screen pe error aa raha hai baar baar. Cart me add kiya tha par buy button freeze ho gaya. Koi fix hai iska?
+                                </p>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-secondary-container text-on-secondary-container rounded-sm font-label-md text-[11px]">Checkout Error</span>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-surface-variant text-on-surface-variant border border-outline-variant rounded-sm font-label-md text-[11px]">Purchase</span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5">
+<div class="w-2 h-2 rounded-full bg-error"></div>
+<span class="font-medium text-error">High</span>
+</div>
+</td>
+<td class="py-3 px-4 text-on-surface-variant">Electronics</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-surface-container-high text-on-surface rounded-sm font-label-md text-[11px] border border-outline-variant">98% High</span>
+</td>
+<td class="py-3 px-4 text-center">
+<a class="text-on-surface-variant hover:text-primary transition-colors inline-flex" href="#">
+<span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</a>
+</td>
+</tr>
+<!-- Row 2: Decline Confidence, Link Unavailable -->
+<tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors group">
+<td class="py-3 px-4 text-on-surface-variant sticky left-0 group-hover:bg-surface-container-low bg-surface z-10 transition-colors">Oct 23, 14:30</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<span class="w-5 h-5 rounded-sm bg-[#FF4500] flex items-center justify-center text-white text-[10px] font-bold">R</span>
+                                    Reddit
+                                </div>
+</td>
+<td class="py-3 px-4 max-w-[400px]">
+<p class="line-clamp-2 text-wrap whitespace-normal text-on-surface leading-snug">
+                                    Price drop ka wait kar raha hu sir, Diwali sale me definitely buy karunga if discount is good enough compared to competitors.
+                                </p>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-secondary-container text-on-secondary-container rounded-sm font-label-md text-[11px]">Pricing Strategy</span>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-surface-variant text-on-surface-variant border border-outline-variant rounded-sm font-label-md text-[11px]">Research</span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5">
+<div class="w-2 h-2 rounded-full bg-outline"></div>
+<span class="text-on-surface-variant">Low</span>
+</div>
+</td>
+<td class="py-3 px-4 text-on-surface-variant">Fashion</td>
+<td class="py-3 px-4">
+<!-- Decline Confidence Spec: transparent background with a 1px dashed red outline -->
+<span class="px-2.5 py-1 bg-transparent text-error border border-dashed border-error rounded-sm font-label-md text-[11px]">32% Decline</span>
+</td>
+<td class="py-3 px-4 text-center">
+<span class="material-symbols-outlined text-[18px] text-outline-variant cursor-not-allowed" title="Link Unavailable">link_off</span>
+</td>
+</tr>
+<!-- Row 3: Standard English, Medium Friction -->
+<tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors group">
+<td class="py-3 px-4 text-on-surface-variant sticky left-0 group-hover:bg-surface-container-low bg-surface z-10 transition-colors">Oct 23, 11:05</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<span class="w-5 h-5 rounded-sm bg-tertiary flex items-center justify-center text-white text-[12px]"><span class="material-symbols-outlined text-[14px]">star</span></span>
+                                    App Store
+                                </div>
+</td>
+<td class="py-3 px-4 max-w-[400px]">
+<p class="line-clamp-2 text-wrap whitespace-normal text-on-surface leading-snug">
+                                    Navigation is very confusing in the new update. Trying to find my past orders but the menu structure is hidden under three clicks.
+                                </p>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-secondary-container text-on-secondary-container rounded-sm font-label-md text-[11px]">UX/UI</span>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-surface-variant text-on-surface-variant border border-outline-variant rounded-sm font-label-md text-[11px]">Support</span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5">
+<div class="w-2 h-2 rounded-full bg-primary-container"></div>
+<span class="font-medium text-on-surface">Medium</span>
+</div>
+</td>
+<td class="py-3 px-4 text-on-surface-variant">General App</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-surface-container-high text-on-surface rounded-sm font-label-md text-[11px] border border-outline-variant">85% Med</span>
+</td>
+<td class="py-3 px-4 text-center">
+<a class="text-on-surface-variant hover:text-primary transition-colors inline-flex" href="#">
+<span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</a>
+</td>
+</tr>
+<!-- Row 4: Short quote -->
+<tr class="border-b border-outline-variant hover:bg-surface-container-low transition-colors group">
+<td class="py-3 px-4 text-on-surface-variant sticky left-0 group-hover:bg-surface-container-low bg-surface z-10 transition-colors">Oct 22, 16:45</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-2">
+<span class="w-5 h-5 rounded-sm bg-[#0A66C2] flex items-center justify-center text-white text-[10px] font-bold">in</span>
+                                    LinkedIn
+                                </div>
+</td>
+<td class="py-3 px-4 max-w-[400px]">
+<p class="line-clamp-2 text-wrap whitespace-normal text-on-surface leading-snug">
+                                    Impressive turnaround time on the refund process.
+                                </p>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-secondary-container text-on-secondary-container rounded-sm font-label-md text-[11px]">Customer Service</span>
+</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-surface-variant text-on-surface-variant border border-outline-variant rounded-sm font-label-md text-[11px]">Feedback</span>
+</td>
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5">
+<div class="w-2 h-2 rounded-full bg-outline"></div>
+<span class="text-on-surface-variant">None</span>
+</div>
+</td>
+<td class="py-3 px-4 text-on-surface-variant">Operations</td>
+<td class="py-3 px-4">
+<span class="px-2.5 py-1 bg-surface-container-high text-on-surface rounded-sm font-label-md text-[11px] border border-outline-variant">99% High</span>
+</td>
+<td class="py-3 px-4 text-center">
+<a class="text-on-surface-variant hover:text-primary transition-colors inline-flex" href="#">
+<span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</a>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Pagination / Footer -->
+<div class="p-4 border-t border-outline-variant bg-surface flex items-center justify-between">
+<span class="font-label-md text-label-md text-on-surface-variant">Showing 1-4 of 1,248 quotes</span>
+<div class="flex items-center gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-DEFAULT border border-outline-variant text-on-surface-variant hover:bg-surface-container-low disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined text-[18px]">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-DEFAULT border border-outline-variant text-on-surface hover:bg-surface-container-low">
+<span class="material-symbols-outlined text-[18px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discovery - Trends</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "inverse-surface": "#33302c",
+                      "on-primary": "#ffffff",
+                      "on-tertiary-container": "#fffbff",
+                      "tertiary-container": "#6370b7",
+                      "surface-variant": "#e9e1dc",
+                      "inverse-primary": "#ffb2ba",
+                      "on-error-container": "#93000a",
+                      "surface": "#fff8f4",
+                      "surface-bright": "#fff8f4",
+                      "surface-container-lowest": "#ffffff",
+                      "on-error": "#ffffff",
+                      "on-secondary-fixed-variant": "#544248",
+                      "tertiary-fixed": "#dee0ff",
+                      "outline-variant": "#e3bdc0",
+                      "surface-dim": "#e0d9d3",
+                      "on-secondary-container": "#715d64",
+                      "primary-container": "#df2457",
+                      "primary": "#b90041",
+                      "on-primary-fixed": "#400011",
+                      "secondary": "#6d5960",
+                      "surface-tint": "#bd0043",
+                      "on-secondary-fixed": "#26171d",
+                      "error-container": "#ffdad6",
+                      "secondary-container": "#f3d9e1",
+                      "surface-container": "#f4ece7",
+                      "surface-container-high": "#efe7e1",
+                      "background": "#fff8f4",
+                      "primary-fixed": "#ffd9dc",
+                      "error": "#ba1a1a",
+                      "primary-fixed-dim": "#ffb2ba",
+                      "tertiary-fixed-dim": "#bac3ff",
+                      "inverse-on-surface": "#f7efea",
+                      "on-secondary": "#ffffff",
+                      "surface-container-low": "#faf2ed",
+                      "on-primary-container": "#fffbff",
+                      "tertiary": "#4a579d",
+                      "outline": "#8f6f72",
+                      "secondary-fixed": "#f6dce4",
+                      "surface-container-highest": "#e9e1dc",
+                      "on-surface": "#1e1b18",
+                      "secondary-fixed-dim": "#d9c0c8",
+                      "on-tertiary-fixed": "#001159",
+                      "on-surface-variant": "#5b4042",
+                      "on-background": "#1e1b18",
+                      "on-tertiary-fixed-variant": "#344186",
+                      "on-primary-fixed-variant": "#910031",
+                      "on-tertiary": "#ffffff"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "drawer_width": "480px",
+                      "base_grid": "8px",
+                      "container_padding": "32px",
+                      "sidebar_width": "240px",
+                      "gutter": "24px",
+                      "card_padding": "24px"
+              },
+              "fontFamily": {
+                      "display": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "number-data": [
+                              "Inter"
+                      ],
+                      "label-md": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "display": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "number-data": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "label-md": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: #F7F4F1; /* Level 0 Canvas */
+            color: #1e1b18; /* on-background */
+        }
+        
+        .border-hairline {
+            border-color: #E7E1DC;
+        }
+
+        /* Chart placeholder styles */
+        .chart-grid {
+            background-image: 
+                linear-gradient(to right, #E7E1DC 1px, transparent 1px),
+                linear-gradient(to bottom, #E7E1DC 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .line-chart-path {
+            fill: none;
+            stroke: #b90041;
+            stroke-width: 2;
+        }
+        
+        .line-chart-path-compare {
+            fill: none;
+            stroke: #8f6f72;
+            stroke-width: 2;
+            stroke-dasharray: 4;
+        }
+
+        .area-chart-base { fill: #f3d9e1; } /* secondary-container */
+        .area-chart-mid { fill: #e9e1dc; }  /* surface-variant */
+        .area-chart-top { fill: #dee0ff; }  /* tertiary-fixed */
+    </style>
+</head>
+<body class="font-body-md text-body-md antialiased min-h-screen flex">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-screen w-[240px] border-r border-hairline bg-surface flex flex-col py-6 z-50">
+<!-- Brand -->
+<div class="px-4 mb-8">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-8 h-8 rounded bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">insights</span>
+</div>
+<h1 class="font-display text-display font-black text-on-surface">Discovery</h1>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Wishlist insights</p>
+</div>
+<!-- CTA -->
+<div class="px-4 mb-6">
+<button class="w-full bg-primary hover:bg-surface-tint text-on-primary font-label-md text-label-md py-2 px-4 rounded flex items-center justify-center gap-2 transition-colors">
+<span class="material-symbols-outlined">auto_awesome</span>
+                Copilot
+            </button>
+</div>
+<!-- Main Navigation -->
+<div class="flex-1 overflow-y-auto">
+<ul class="space-y-1">
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">dashboard</span> Overview</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">dataset</span> Themes</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">fact_check</span> Evidence</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">category</span> Categories</a></li>
+<li><a class="flex items-center gap-3 bg-secondary-container text-on-secondary-container border-l-4 border-primary px-4 py-2 opacity-90 transition-all duration-150" href="#"><span class="material-symbols-outlined">trending_up</span> Trends</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">groups</span> Segments</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">source</span> Sources</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">chat_bubble</span> Phrases</a></li>
+<li><a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors" href="#"><span class="material-symbols-outlined">description</span> Reports</a></li>
+</ul>
+</div>
+<!-- Footer Footer -->
+<div class="px-4 mt-auto pt-6 border-t border-hairline">
+<ul class="space-y-2">
+<li class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">update</span> Ingest 2h ago</li>
+<li class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md"><span class="material-symbols-outlined text-[16px]">refresh</span> Themes refreshed</li>
+</ul>
+</div>
+</nav>
+<!-- Main Content Area -->
+<div class="flex-1 ml-[240px] flex flex-col min-h-screen">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center h-16 px-gutter docked full-width top-0 sticky z-40 border-b border-hairline bg-surface">
+<!-- Left: Context/Nav -->
+<div class="flex items-center gap-6">
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-primary font-bold border-b-2 border-primary pb-1 hover:text-on-surface transition-colors" href="#">Last 90 days</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">All sources</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">All Category</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors" href="#">All Segment</a>
+</nav>
+</div>
+<!-- Right: Actions -->
+<div class="flex items-center gap-4">
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors">Internal PM</button>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors">Share view</button>
+<div class="h-4 w-[1px] bg-outline-variant mx-2"></div>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors"><span class="material-symbols-outlined">settings</span></button>
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden ml-2 border border-hairline">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A highly detailed close up portrait of a professional woman in a bright, modern, minimalist office environment. Soft, high-key white lighting creates a pristine light-mode aesthetic. Subtle neutral tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBrvdT_akWksM9QCINZpTNzxaiDRc-E56ySFUVJeMZeeyRXo02U0e4_KAVL-ABKo_bIe8XUQVwRiNhRGjcyAXfega0CrjqhjRC6uQ7zR8PEa6Zrfh-avmDJv90fBvPrCusVco08HeM9Khuln2UkxzH0Emure2MRsFpSuMS7tGDfVjVjtJ_uFyEjKdKQVzjl0TbbhyvWjfA6n8_44oD-65XJCKAiTMcsETWFHA8Zf1epSyi0k8BfX7mHWA"/>
+</div>
+</div>
+</header>
+<!-- Canvas -->
+<main class="flex-1 p-container_padding space-y-[32px]">
+<!-- Page Header -->
+<div>
+<h2 class="font-headline-lg text-headline-lg text-on-surface mb-2">Trends</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Analyze mention volume and sentiment trajectory over the selected period.</p>
+</div>
+<!-- Bento Layout -->
+<div class="grid grid-cols-12 gap-[24px]">
+<!-- Main Chart Area (Spans 8 cols) -->
+<div class="col-span-12 lg:col-span-8 flex flex-col gap-[24px]">
+<!-- Volume Chart Card -->
+<div class="bg-surface border border-hairline rounded flex flex-col">
+<div class="p-card_padding border-b border-hairline flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-on-surface">Mention Volume Over Time</h3>
+<div class="flex items-center gap-3 font-label-md text-label-md">
+<div class="flex items-center gap-1"><div class="w-3 h-3 bg-primary rounded-sm"></div> <span class="text-on-surface-variant">Current</span></div>
+<div class="flex items-center gap-1"><div class="w-3 h-3 border-t-2 border-dashed border-outline rounded-sm"></div> <span class="text-on-surface-variant">Previous</span></div>
+</div>
+</div>
+<div class="p-card_padding flex-1 min-h-[300px] relative">
+<!-- SVG Placeholder for Line Chart -->
+<svg class="w-full h-full chart-grid" preserveaspectratio="none" viewbox="0 0 800 300">
+<!-- Axes Labels -->
+<text class="text-label-md fill-on-surface-variant text-[10px]" x="10" y="290">Jan</text>
+<text class="text-label-md fill-on-surface-variant text-[10px]" x="390" y="290">Feb</text>
+<text class="text-label-md fill-on-surface-variant text-[10px]" x="770" y="290">Mar</text>
+<text class="text-label-md fill-on-surface-variant text-[10px]" x="10" y="20">1k</text>
+<text class="text-label-md fill-on-surface-variant text-[10px]" x="10" y="150">500</text>
+<!-- Data Lines -->
+<path class="line-chart-path" d="M 40 250 Q 150 200 200 150 T 400 100 T 600 120 T 780 50"></path>
+<path class="line-chart-path-compare" d="M 40 280 Q 150 240 200 220 T 400 180 T 600 200 T 780 150"></path>
+</svg>
+</div>
+</div>
+<!-- Sentiment Area Chart Card -->
+<div class="bg-surface border border-hairline rounded flex flex-col">
+<div class="p-card_padding border-b border-hairline flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-on-surface">Sentiment Trajectory</h3>
+<div class="flex items-center gap-3 font-label-md text-label-md">
+<div class="flex items-center gap-1"><div class="w-3 h-3 bg-secondary-container rounded-sm"></div> <span class="text-on-surface-variant">Trust</span></div>
+<div class="flex items-center gap-1"><div class="w-3 h-3 bg-surface-variant rounded-sm"></div> <span class="text-on-surface-variant">Doubt</span></div>
+<div class="flex items-center gap-1"><div class="w-3 h-3 bg-tertiary-fixed rounded-sm"></div> <span class="text-on-surface-variant">Frustration</span></div>
+</div>
+</div>
+<div class="p-card_padding flex-1 min-h-[240px] relative bg-background"> <!-- using inlay background for contrast -->
+<!-- SVG Placeholder for Area Chart -->
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 800 240">
+<!-- Base Area (Trust) -->
+<path class="area-chart-base opacity-80" d="M 0 240 L 0 150 Q 200 120 400 160 T 800 100 L 800 240 Z"></path>
+<!-- Mid Area (Doubt) -->
+<path class="area-chart-mid opacity-80" d="M 0 150 Q 200 120 400 160 T 800 100 L 800 60 Q 600 40 400 100 T 0 80 Z"></path>
+<!-- Top Area (Frustration) -->
+<path class="area-chart-top opacity-80" d="M 0 80 Q 200 140 400 100 T 800 60 L 800 0 L 0 0 Z"></path>
+</svg>
+</div>
+</div>
+<p class="font-label-md text-label-md text-on-surface-variant mt-2">* Note: Data points represent 7-day rolling averages to mitigate thin slice volatility.</p>
+</div>
+<!-- Right Column: Trend Pills (Spans 4 cols) -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-[24px]">
+<div class="bg-surface border border-hairline rounded p-card_padding">
+<h3 class="font-headline-md text-headline-md text-on-surface mb-6">Key Movers</h3>
+<div class="space-y-4">
+<!-- Rising -->
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-2">Rising Rapidly</h4>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center gap-1 px-3 py-1 rounded bg-secondary-container text-on-secondary-container font-number-data text-number-data">
+<span class="material-symbols-outlined text-[16px]">arrow_upward</span> Fit Consistency
+                                    </span>
+<span class="inline-flex items-center gap-1 px-3 py-1 rounded bg-secondary-container text-on-secondary-container font-number-data text-number-data">
+<span class="material-symbols-outlined text-[16px]">arrow_upward</span> Fabric Quality
+                                    </span>
+</div>
+</div>
+<hr class="border-hairline my-4"/>
+<!-- Flat -->
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-2">Stabilizing</h4>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center gap-1 px-3 py-1 rounded bg-surface-container-high text-on-surface font-number-data text-number-data">
+<span class="material-symbols-outlined text-[16px]">horizontal_rule</span> Delivery Speed
+                                    </span>
+</div>
+</div>
+<hr class="border-hairline my-4"/>
+<!-- Declining (Using dashed border rule for low confidence/decline) -->
+<div>
+<h4 class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-2">Declining</h4>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center gap-1 px-3 py-1 rounded border border-dashed border-error text-error font-number-data text-number-data bg-transparent">
+<span class="material-symbols-outlined text-[16px]">arrow_downward</span> Return Process
+                                    </span>
+<span class="inline-flex items-center gap-1 px-3 py-1 rounded border border-dashed border-error text-error font-number-data text-number-data bg-transparent">
+<span class="material-symbols-outlined text-[16px]">arrow_downward</span> Price Perception
+                                    </span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

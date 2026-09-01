@@ -1,0 +1,90 @@
+{
+  "name": "Myntra Discovery pipeline",
+  "meta": {
+    "description": "Phase 7 schedule: ingest → normalize → Groq extract → BGE embed → cluster. Import into n8n. Set execute-command cwd to the repo root. Do not also run Windows Task Scheduler / cron on the same host (EC-OP-06)."
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "daily-0200",
+      "name": "Daily 02:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "command": "python -m src.cli pipeline --sources all --cluster"
+      },
+      "id": "pipeline",
+      "name": "Ingest normalize extract embed cluster",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [280, 0]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 2 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "weekly-sunday",
+      "name": "Sunday 02:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 220]
+    },
+    {
+      "parameters": {
+        "command": "python -m src.cli ngrams && python -m src.cli report && python -m src.cli eval --check"
+      },
+      "id": "weekly-jobs",
+      "name": "Ngrams report eval-check",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [280, 220]
+    }
+  ],
+  "connections": {
+    "Daily 02:00": {
+      "main": [
+        [
+          {
+            "node": "Ingest normalize extract embed cluster",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sunday 02:30": {
+      "main": [
+        [
+          {
+            "node": "Ngrams report eval-check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata"
+  }
+}

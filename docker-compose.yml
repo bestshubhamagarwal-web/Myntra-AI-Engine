@@ -1,0 +1,14 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: discovery
+      POSTGRES_PASSWORD: discovery
+      POSTGRES_DB: discovery
+    ports:
+      - "5432:5432"
+    volumes:
+      - discovery_pg:/var/lib/postgresql/data
+
+volumes:
+  discovery_pg:

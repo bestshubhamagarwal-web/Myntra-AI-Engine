@@ -1,0 +1,6 @@
+# Daily 02:00 ingest → normalize → extract → embed → cluster (Phase 7).
+# Install: crontab ops/cron/discovery.crontab
+# Use the venv python. Do not also run n8n on the same host (EC-OP-06).
+# m h  dom mon dow   command
+0 2 * * * cd /path/to/Ai\ engine && .venv/bin/python -m src.cli pipeline --sources all --cluster
+30 2 * * 0 cd /path/to/Ai\ engine && .venv/bin/python -m src.cli ngrams && .venv/bin/python -m src.cli report && .venv/bin/python -m src.cli eval --check

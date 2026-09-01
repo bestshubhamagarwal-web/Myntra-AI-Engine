@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Discovery - Themes</title>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.filled {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Design System Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "inverse-surface": "#33302c",
+                    "on-primary": "#ffffff",
+                    "on-tertiary-container": "#fffbff",
+                    "tertiary-container": "#6370b7",
+                    "surface-variant": "#e9e1dc",
+                    "inverse-primary": "#ffb2ba",
+                    "on-error-container": "#93000a",
+                    "surface": "#fff8f4",
+                    "surface-bright": "#fff8f4",
+                    "surface-container-lowest": "#ffffff",
+                    "on-error": "#ffffff",
+                    "on-secondary-fixed-variant": "#544248",
+                    "tertiary-fixed": "#dee0ff",
+                    "outline-variant": "#e3bdc0",
+                    "surface-dim": "#e0d9d3",
+                    "on-secondary-container": "#715d64",
+                    "primary-container": "#df2457",
+                    "primary": "#b90041",
+                    "on-primary-fixed": "#400011",
+                    "secondary": "#6d5960",
+                    "surface-tint": "#bd0043",
+                    "on-secondary-fixed": "#26171d",
+                    "error-container": "#ffdad6",
+                    "secondary-container": "#f3d9e1",
+                    "surface-container": "#f4ece7",
+                    "surface-container-high": "#efe7e1",
+                    "background": "#fff8f4",
+                    "primary-fixed": "#ffd9dc",
+                    "error": "#ba1a1a",
+                    "primary-fixed-dim": "#ffb2ba",
+                    "tertiary-fixed-dim": "#bac3ff",
+                    "inverse-on-surface": "#f7efea",
+                    "on-secondary": "#ffffff",
+                    "surface-container-low": "#faf2ed",
+                    "on-primary-container": "#fffbff",
+                    "tertiary": "#4a579d",
+                    "outline": "#8f6f72",
+                    "secondary-fixed": "#f6dce4",
+                    "surface-container-highest": "#e9e1dc",
+                    "on-surface": "#1e1b18",
+                    "secondary-fixed-dim": "#d9c0c8",
+                    "on-tertiary-fixed": "#001159",
+                    "on-surface-variant": "#5b4042",
+                    "on-background": "#1e1b18",
+                    "on-tertiary-fixed-variant": "#344186",
+                    "on-primary-fixed-variant": "#910031",
+                    "on-tertiary": "#ffffff"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "drawer_width": "480px",
+                    "base_grid": "8px",
+                    "container_padding": "32px",
+                    "sidebar_width": "240px",
+                    "gutter": "24px",
+                    "card_padding": "24px"
+            },
+            "fontFamily": {
+                    "display": ["Inter", "sans-serif"],
+                    "headline-lg": ["Inter", "sans-serif"],
+                    "number-data": ["Inter", "sans-serif"],
+                    "label-md": ["Inter", "sans-serif"],
+                    "body-md": ["Inter", "sans-serif"],
+                    "headline-md": ["Inter", "sans-serif"],
+                    "body-lg": ["Inter", "sans-serif"]
+            },
+            "fontSize": {
+                    "display": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "number-data": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+</head>
+<body class="bg-background text-on-surface font-body-md text-body-md antialiased overflow-hidden">
+<div class="flex h-screen w-full relative">
+<!-- 
+          =============================================
+          Shared Component: SideNavBar
+          =============================================
+        -->
+<aside class="fixed left-0 top-0 h-screen w-[240px] border-r border-outline-variant bg-surface flex flex-col py-6 z-30">
+<!-- Header/Brand -->
+<div class="px-6 mb-8 flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center text-on-primary-container font-display text-display" style="font-size: 16px; line-height: 1;">D</div>
+<div>
+<h1 class="font-display text-display text-on-surface text-[18px] leading-[24px]">Discovery</h1>
+<p class="font-label-md text-label-md text-on-surface-variant">Wishlist insights</p>
+</div>
+</div>
+<!-- Primary Nav -->
+<nav class="flex-1 overflow-y-auto px-2 space-y-1">
+<!-- Overview: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<!-- Themes: Active -->
+<a class="flex items-center gap-3 bg-secondary-container text-on-secondary-container border-l-4 border-primary px-4 py-2 opacity-90 transition-all duration-150 rounded-r-full ml-[-4px]" href="#">
+<span class="material-symbols-outlined filled">dataset</span>
+<span class="font-body-md text-body-md font-bold">Themes</span>
+</a>
+<!-- Evidence: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">fact_check</span>
+<span class="font-body-md text-body-md">Evidence</span>
+</a>
+<!-- Categories: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">category</span>
+<span class="font-body-md text-body-md">Categories</span>
+</a>
+<!-- Trends: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">trending_up</span>
+<span class="font-body-md text-body-md">Trends</span>
+</a>
+<!-- Segments: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-body-md text-body-md">Segments</span>
+</a>
+<!-- Sources: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">source</span>
+<span class="font-body-md text-body-md">Sources</span>
+</a>
+<!-- Phrases: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span class="font-body-md text-body-md">Phrases</span>
+</a>
+<!-- Reports: Inactive -->
+<a class="flex items-center gap-3 text-on-surface-variant px-4 py-2 hover:bg-surface-container-high transition-colors rounded-r-full" href="#">
+<span class="material-symbols-outlined">description</span>
+<span class="font-body-md text-body-md">Reports</span>
+</a>
+</nav>
+<!-- CTA & Footer -->
+<div class="px-6 mt-4 space-y-4">
+<button class="w-full flex items-center justify-center gap-2 bg-primary text-on-primary py-2 px-4 rounded-full font-label-md text-label-md hover:bg-on-primary-fixed-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">auto_awesome</span>
+                    Copilot
+                </button>
+<div class="border-t border-outline-variant pt-4 space-y-2">
+<div class="flex items-center gap-3 text-on-surface-variant px-2 py-1 text-xs">
+<span class="material-symbols-outlined text-[16px]">update</span>
+<span>Ingest 2h ago</span>
+</div>
+<div class="flex items-center gap-3 text-on-surface-variant px-2 py-1 text-xs">
+<span class="material-symbols-outlined text-[16px]">refresh</span>
+<span>Themes refreshed</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 flex flex-col ml-[240px] h-screen relative">
+<!-- 
+              =============================================
+              Shared Component: TopAppBar
+              =============================================
+            -->
+<header class="docked full-width top-0 sticky z-20 border-b border-outline-variant bg-surface flex justify-between items-center h-16 px-gutter shrink-0">
+<!-- Navigation Filters -->
+<nav class="flex gap-6 h-full items-end">
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md pb-4 border-b-2 border-transparent" href="#">Last 90 days</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md pb-4 border-b-2 border-transparent" href="#">All sources</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md pb-4 border-b-2 border-transparent" href="#">All Category</a>
+<a class="text-on-surface-variant hover:text-on-surface transition-colors font-body-md text-body-md pb-4 border-b-2 border-transparent" href="#">All Segment</a>
+</nav>
+<!-- Actions -->
+<div class="flex items-center gap-4">
+<button class="text-primary font-label-md text-label-md hover:bg-surface-variant px-3 py-1.5 rounded transition-colors border border-outline-variant">Share view</button>
+<button class="bg-primary text-on-primary font-label-md text-label-md px-3 py-1.5 rounded hover:bg-on-primary-fixed-variant transition-colors">Internal PM</button>
+<div class="flex items-center gap-2 text-on-surface-variant border-l border-outline-variant pl-4 ml-2">
+<button class="hover:bg-surface-variant p-1.5 rounded-full transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+<button class="hover:bg-surface-variant p-1.5 rounded-full transition-colors"><span class="material-symbols-outlined">settings</span></button>
+<div class="w-8 h-8 rounded-full bg-secondary-container ml-2 overflow-hidden border border-outline-variant">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="A detailed headshot photo of a professional woman in her 30s with dark hair, wearing a neutral blazer against a minimalist light grey background, looking approachable yet focused." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA8nAItSYfUZCOwxUga8B6EwusxS2Jygyx5AfFCBfETxYKtIYg1w_fOZPaBvMvQF5Vk1pXAHTNLRi5EX64HiMqgLvISsiAEtprJQ57uFwfPYLd2qCz50OZHp8q6x7yHeHnT4yA9HZ_sXgkGfje24SoVDqIe-iSyt5v6VT7Y0_IeC5yE02Mpd1NVSA_pF2WFsGniu59wHhUrhGfn5MMmzrf5DhaAWAlyh_5Jk1Dfm_7sdrhSHD5Hd7MFDQ"/>
+</div>
+</div>
+</div>
+</header>
+<!-- 
+              =============================================
+              Canvas Content: Themes Dashboard
+              =============================================
+            -->
+<main class="flex-1 overflow-y-auto bg-surface-container-low p-container_padding pb-32">
+<!-- Header -->
+<div class="mb-8">
+<h2 class="font-display text-display text-on-surface mb-2">Opportunity areas</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">sort</span> Ranked by impact
+                    </p>
+</div>
+<!-- Vertical Stack of Theme Cards -->
+<div class="space-y-4 max-w-5xl">
+<!-- Card 1: Open / Active state -->
+<div class="bg-surface-container-lowest border border-primary rounded-lg p-card_padding flex gap-6 relative overflow-hidden shadow-[0_0_0_1px_rgba(185,0,65,0.2)]">
+<!-- Active Indicator -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<!-- Rank -->
+<div class="flex flex-col items-center justify-center shrink-0 w-12 border-r border-outline-variant pr-6">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Rank</span>
+<span class="font-display text-display text-primary">01</span>
+</div>
+<!-- Core Content -->
+<div class="flex-1 space-y-4">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">Fit uncertainty on ethnic kurtas</h3>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">High volume of return mentions citing chest block tightness despite matching standard size charts, heavily skewing towards Tier 2 buyers.</p>
+</div>
+<button class="text-primary hover:bg-surface-variant p-2 rounded-full transition-colors"><span class="material-symbols-outlined">chevron_right</span></button>
+</div>
+<!-- Chips & Metrics -->
+<div class="flex items-end justify-between pt-4 border-t border-outline-variant/50">
+<div class="flex gap-2">
+<span class="px-2 py-1 bg-secondary-container text-on-secondary-container rounded font-label-md text-label-md text-[11px] uppercase tracking-wider">Sizing Issue</span>
+<span class="px-2 py-1 bg-error-container text-on-error-container rounded font-label-md text-label-md text-[11px] uppercase tracking-wider">High Return Risk</span>
+</div>
+<div class="flex gap-8 text-right">
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Impact</div>
+<div class="font-number-data text-number-data text-on-surface font-bold text-lg">High</div>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Mentions</div>
+<div class="font-number-data text-number-data text-on-surface font-bold text-lg">1,240</div>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Sentiment</div>
+<div class="font-number-data text-number-data text-error font-bold text-lg">-42%</div>
+</div>
+<div class="w-24 h-8 flex items-end">
+<!-- Sparkline Placeholder -->
+<svg class="w-full h-full stroke-primary fill-none stroke-2" viewbox="0 0 100 30">
+<polyline points="0,25 20,20 40,28 60,15 80,10 100,5"></polyline>
+</svg>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 2: Standard -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-card_padding flex gap-6 hover:bg-surface-container-low transition-colors cursor-pointer">
+<!-- Rank -->
+<div class="flex flex-col items-center justify-center shrink-0 w-12 border-r border-outline-variant pr-6">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Rank</span>
+<span class="font-display text-display text-on-surface-variant">02</span>
+</div>
+<!-- Core Content -->
+<div class="flex-1 space-y-4">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">Fabric transparency complaints in summer tops</h3>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">Customers report lightweight cotton blends in pastel shades are too sheer for office wear, leading to negative reviews.</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary p-2 rounded-full transition-colors"><span class="material-symbols-outlined">chevron_right</span></button>
+</div>
+<div class="flex items-end justify-between pt-4 border-t border-outline-variant/50">
+<div class="flex gap-2">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant rounded font-label-md text-label-md text-[11px] uppercase tracking-wider">Material Quality</span>
+</div>
+<div class="flex gap-8 text-right opacity-80">
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Impact</div>
+<div class="font-number-data text-number-data text-on-surface font-bold text-lg">Med</div>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Mentions</div>
+<div class="font-number-data text-number-data text-on-surface font-bold text-lg">892</div>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Sentiment</div>
+<div class="font-number-data text-number-data text-error font-bold text-lg">-28%</div>
+</div>
+<div class="w-24 h-8 flex items-end">
+<svg class="w-full h-full stroke-on-surface-variant fill-none stroke-2 opacity-50" viewbox="0 0 100 30">
+<polyline points="0,20 20,25 40,15 60,22 80,18 100,10"></polyline>
+</svg>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 3: Hypothesis (Dashed Border) -->
+<div class="bg-surface-container-low border-2 border-dashed border-outline rounded-lg p-card_padding flex gap-6 hover:bg-surface-variant transition-colors cursor-pointer relative">
+<div class="absolute top-0 right-8 bg-surface-container-highest text-on-surface-variant px-3 py-1 rounded-b-md font-label-md text-label-md text-xs font-bold border-x border-b border-outline">
+                            EMERGING HYPOTHESIS
+                        </div>
+<!-- Rank -->
+<div class="flex flex-col items-center justify-center shrink-0 w-12 border-r border-outline-variant pr-6">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-1">Rank</span>
+<span class="font-display text-display text-outline">03</span>
+</div>
+<!-- Core Content -->
+<div class="flex-1 space-y-4">
+<div class="flex justify-between items-start">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-1">Price sensitivity vs. brand loyalty in activewear</h3>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-2xl">Sudden drop in conversion for mid-tier yoga pants correlates with competitor discounting; brand affinity may not be strong enough to hold margin.</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary p-2 rounded-full transition-colors"><span class="material-symbols-outlined">chevron_right</span></button>
+</div>
+<div class="flex items-end justify-between pt-4 border-t border-outline-variant/50">
+<div class="flex gap-2">
+<span class="px-2 py-1 bg-surface-variant text-on-surface-variant rounded font-label-md text-label-md text-[11px] uppercase tracking-wider">Pricing</span>
+<span class="px-2 py-1 bg-tertiary-fixed text-on-tertiary-fixed rounded font-label-md text-label-md text-[11px] uppercase tracking-wider">Competitive Threat</span>
+</div>
+<div class="flex gap-8 text-right opacity-80">
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Impact</div>
+<div class="font-number-data text-number-data text-on-surface font-bold text-lg">TBD</div>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Mentions</div>
+<div class="font-number-data text-number-data text-on-surface font-bold text-lg">415</div>
+</div>
+<div>
+<div class="font-label-md text-label-md text-on-surface-variant mb-1">Sentiment</div>
+<div class="font-number-data text-number-data text-on-surface font-bold text-lg">-5%</div>
+</div>
+<div class="w-24 h-8 flex items-end">
+<svg class="w-full h-full stroke-tertiary fill-none stroke-2 opacity-60" viewbox="0 0 100 30">
+<polyline points="0,15 20,15 40,20 60,10 80,25 100,5"></polyline>
+</svg>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Generate 3 more dummy cards to meet requirement of 6 -->
+<!-- Card 4 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-card_padding flex gap-6 hover:bg-surface-container-low transition-colors cursor-pointer opacity-75">
+<div class="flex flex-col items-center justify-center shrink-0 w-12 border-r border-outline-variant pr-6">
+<span class="font-display text-display text-on-surface-variant">04</span>
+</div>
+<div class="flex-1 flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-on-surface">Delivery delays in North East pin codes</h3>
+<div class="flex gap-6 items-center text-on-surface-variant">
+<span>Impact: Low</span>
+<span>Mentions: 312</span>
+</div>
+</div>
+</div>
+<!-- Card 5 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-card_padding flex gap-6 hover:bg-surface-container-low transition-colors cursor-pointer opacity-75">
+<div class="flex flex-col items-center justify-center shrink-0 w-12 border-r border-outline-variant pr-6">
+<span class="font-display text-display text-on-surface-variant">05</span>
+</div>
+<div class="flex-1 flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-on-surface">Demand for eco-friendly packaging</h3>
+<div class="flex gap-6 items-center text-on-surface-variant">
+<span>Impact: Low</span>
+<span>Mentions: 156</span>
+</div>
+</div>
+</div>
+<!-- Card 6 -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-lg p-card_padding flex gap-6 hover:bg-surface-container-low transition-colors cursor-pointer opacity-75">
+<div class="flex flex-col items-center justify-center shrink-0 w-12 border-r border-outline-variant pr-6">
+<span class="font-display text-display text-on-surface-variant">06</span>
+</div>
+<div class="flex-1 flex justify-between items-center">
+<h3 class="font-headline-md text-headline-md text-on-surface">Inconsistent zipper quality on winter jackets</h3>
+<div class="flex gap-6 items-center text-on-surface-variant">
+<span>Impact: Low</span>
+<span>Mentions: 98</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Dim Overlay for Open Drawer -->
+<div class="absolute inset-0 bg-inverse-surface/30 z-40 transition-opacity backdrop-blur-sm"></div>
+</div>
+<!-- 
+          =============================================
+          Shared Component: NavigationDrawer (Right Overlay)
+          =============================================
+        -->
+<aside class="fixed right-0 top-0 h-screen w-[480px] z-50 border-l border-outline-variant bg-surface shadow-xl flex flex-col p-card_padding transform transition-transform duration-300 translate-x-0">
+<!-- Drawer Header -->
+<div class="flex justify-between items-start mb-8 pb-4 border-b border-outline-variant">
+<div>
+<h2 class="font-headline-md text-headline-md font-bold text-primary mb-1">Evidence</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Verbatim quotes and source links</p>
+</div>
+<button class="text-on-surface-variant hover:bg-surface-variant p-2 rounded-full transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Drawer Content: Verbatims -->
+<div class="flex-1 overflow-y-auto pr-2 space-y-6">
+<!-- Quote 1 -->
+<div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant shadow-sm">
+<div class="flex justify-between items-center mb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]">format_quote</span>
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-xs rounded font-medium">Twitter</span>
+</div>
+<span class="text-xs text-on-surface-variant">2 hours ago</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface mb-3 leading-relaxed">
+                        "Bhai fitting ekdum bakwas thi, return karna pada. Chest se bohot tight hai jabki size chart follow kiya tha. Disappointed."
+                    </p>
+<p class="font-body-md text-body-md text-on-surface-variant italic border-l-2 border-outline-variant pl-3">
+                        "Bro fitting was completely rubbish, had to return it. It's very tight from the chest even though I followed the size chart. Disappointed."
+                    </p>
+</div>
+<!-- Quote 2 -->
+<div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant shadow-sm">
+<div class="flex justify-between items-center mb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]">format_quote</span>
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-xs rounded font-medium">App Review</span>
+</div>
+<span class="text-xs text-on-surface-variant">Yesterday</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface mb-3 leading-relaxed">
+                        "Kurta material is good but the cut is weird. Usually XL fits me perfectly but this one feels like an M around the shoulders. Will be returning."
+                    </p>
+</div>
+<!-- Quote 3 -->
+<div class="bg-surface-container-lowest p-4 rounded-lg border border-outline-variant shadow-sm">
+<div class="flex justify-between items-center mb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]">format_quote</span>
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface-variant text-xs rounded font-medium">Customer Support</span>
+</div>
+<span class="text-xs text-on-surface-variant">2 days ago</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface mb-3 leading-relaxed">
+                        "Ma'am, size issues bohot aa rahe hain is brand ke ethnic wear mein. Customers complain kar rahe hain ki armhole and chest area is too constrained."
+                    </p>
+<p class="font-body-md text-body-md text-on-surface-variant italic border-l-2 border-outline-variant pl-3">
+                        "Ma'am, we are getting a lot of size issues in this brand's ethnic wear. Customers are complaining that the armhole and chest area is too constrained."
+                    </p>
+</div>
+</div>
+<!-- Drawer Footer (Optional Action) -->
+<div class="mt-6 pt-4 border-t border-outline-variant flex justify-end">
+<button class="bg-surface-container-high text-on-surface hover:bg-surface-variant px-4 py-2 rounded font-label-md text-label-md transition-colors border border-outline-variant">
+                    Export Evidence
+                </button>
+</div>
+</aside>
+</div>
+</body></html>
