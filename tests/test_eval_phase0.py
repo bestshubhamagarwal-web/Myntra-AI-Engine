@@ -33,6 +33,10 @@ def test_ev_0_01_layout_paths_exist():
         "prompts/theme_label.md",
         "web/package.json",
         "web/app/page.tsx",
+        "Dockerfile",
+        "railway.toml",
+        "docs/deployment-plan.md",
+        "web/vercel.json",
     ]
     missing = [rel for rel in required if not (REPO / rel).exists()]
     assert missing == []

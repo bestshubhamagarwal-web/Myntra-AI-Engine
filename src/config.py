@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pydantic import field_validator
@@ -111,6 +112,9 @@ class Settings(BaseSettings):
     lock_path: Path = Path("./data/locks")
     lock_stale_seconds: int = 7200
     local_store_path: Path = Path("./data/local_store.pkl")
+    # Railway/production: never fall back to local_store.pkl when Postgres is down.
+    require_postgres: bool = False
+    postgres_wait_seconds: float = 60.0
 
     @field_validator("groq_base_url")
     @classmethod
@@ -181,6 +185,20 @@ class Settings(BaseSettings):
                 "API_SHARED_SECRET is required when binding beyond localhost "
                 f"(API_HOST={host}). Prototype auth is a shared secret."
             )
+
+
+def resolve_listen_port(explicit: int | None = None, settings: Settings | None = None) -> int:
+    """Bind port: CLI --port, then platform PORT (Railway), then API_PORT."""
+    if explicit is not None:
+        return int(explicit)
+    raw = (os.environ.get("PORT") or "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except ValueError as exc:
+            raise ValueError(f"PORT must be an integer, got {raw!r}") from exc
+    cfg = settings or load_settings()
+    return int(cfg.api_port)
 
 
 def frozen_snapshot(settings: Settings) -> dict:

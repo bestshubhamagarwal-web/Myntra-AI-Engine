@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 from uuid import UUID
 
-from src.config import load_settings, require_frozen_constants
+from src.config import load_settings, require_frozen_constants, resolve_listen_port
 from src.cluster.pipeline import run_cluster
-from src.db.connect import connect_store
+from src.db.connect import PostgresRequiredError, connect_store, wait_for_postgres
 from src.db.local import PersistentMemoryRepository
 from src.db.memory import MemoryRepository
 from src.db.migrate import apply_migrations
@@ -46,9 +46,22 @@ def _repo():
     return settings, connect_store(settings)
 
 
+def _wait_for_required_postgres(settings) -> int:
+    if not settings.require_postgres:
+        return 0
+    try:
+        wait_for_postgres(settings)
+    except PostgresRequiredError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_migrate(_args: argparse.Namespace) -> int:
     settings = load_settings()
     settings.ensure_runtime_dirs()
+    if _wait_for_required_postgres(settings) != 0:
+        return 1
     applied = apply_migrations(settings.database_url)
     if applied:
         print("applied:", ", ".join(applied))
@@ -636,8 +649,13 @@ def cmd_index(_args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     settings = load_settings()
     host = args.host or settings.api_host
-    port = args.port or settings.api_port
+    try:
+        port = resolve_listen_port(args.port, settings)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     settings.api_host = host
+    settings.api_port = int(port)
     try:
         settings.require_api_secret_if_public()
     except ValueError as exc:
@@ -653,7 +671,23 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from src.api.app import create_app
 
     settings.ensure_runtime_dirs()
-    app = create_app(settings=settings)
+    if getattr(args, "migrate", False):
+        if _wait_for_required_postgres(settings) != 0:
+            return 1
+        try:
+            applied = apply_migrations(settings.database_url)
+        except Exception as exc:  # noqa: BLE001 — boot must not hang as a silent pickle API
+            print(f"migrate failed: {exc}", file=sys.stderr)
+            return 1
+        if applied:
+            print("applied:", ", ".join(applied))
+        else:
+            print("migrations already applied")
+    try:
+        app = create_app(settings=settings)
+    except PostgresRequiredError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     store = app.state.repo
     if isinstance(store, PostgresRepository):
         print(f"store: postgres  {settings.database_url}")
@@ -902,7 +936,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve_cmd = sub.add_parser("serve", help="Run FastAPI Query API + Copilot (localhost by default)")
     serve_cmd.add_argument("--host", default=None, help="Bind host (default API_HOST=127.0.0.1)")
-    serve_cmd.add_argument("--port", type=int, default=None)
+    serve_cmd.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port (default: PORT env, then API_PORT=8000)",
+    )
+    serve_cmd.add_argument(
+        "--migrate",
+        action="store_true",
+        help="Apply SQL migrations before serving (Railway boot)",
+    )
     serve_cmd.set_defaults(func=cmd_serve)
 
     copilot_cmd = sub.add_parser("copilot", help="Phase 5 debug: POST-equivalent Copilot turn on stdout")
