@@ -34,7 +34,9 @@ class PostgresRepository:
         self.database_url = database_url
 
     def connect(self) -> psycopg.Connection:
-        return psycopg.connect(
+        from src.db.connect import postgres_connect
+
+        return postgres_connect(
             self.database_url,
             row_factory=dict_row,
             connect_timeout=8,

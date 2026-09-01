@@ -205,7 +205,24 @@ export async function queryCopilot(
   return (await res.json()) as CopilotTurnResponse;
 }
 
-export async function fetchHealth(): Promise<{ status: string; store?: string }> {
-  const res = await queryFetch("/health");
-  return (await res.json()) as { status: string; store?: string };
+export async function fetchHealth(): Promise<{ status: string; store?: string; detail?: string }> {
+  const headers = new Headers();
+  const key = storedKey();
+  if (key) headers.set("X-API-Key", key);
+  const res = await fetch(`${QUERY_PREFIX}/health`, { headers, cache: "no-store" });
+  const body = (await res.json().catch(() => ({}))) as {
+    status?: string;
+    store?: string;
+    detail?: string;
+  };
+  if (res.status === 503 && body.store === "pending") {
+    throw new ApiError(
+      body.detail || "Query API is connecting to Postgres. Retry in a few seconds.",
+      503,
+    );
+  }
+  if (!res.ok) {
+    throw new ApiError(errorMessageFromBody(body) || `Request failed (${res.status})`, res.status);
+  }
+  return { status: body.status || "ok", store: body.store, detail: body.detail };
 }

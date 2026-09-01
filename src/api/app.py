@@ -31,7 +31,7 @@ from src.api.schemas import (
     TrendsResponse,
 )
 from src.config import Settings, load_settings
-from src.db.connect import POSTGRES_UNREACHABLE, connect_store, wait_for_postgres
+from src.db.connect import POSTGRES_UNREACHABLE, connect_store, resolve_database_url
 from src.db.local import PersistentMemoryRepository
 from src.db.migrate import apply_migrations
 from src.db.postgres import PostgresRepository
@@ -71,6 +71,26 @@ def _attach_store(
     app.state.boot_error = None
 
 
+def pending_store_detail(boot_error: str | None) -> str:
+    err = (boot_error or "").strip()
+    if not err:
+        return "Query API is connecting to Postgres. Retry in a few seconds."
+    lowered = err.lower()
+    if "vector" in lowered or "extension" in lowered:
+        return (
+            "Migrations need pgvector. Use Railway's pgvector template (not default "
+            "Postgres) and set DATABASE_URL to ${{Postgres.DATABASE_URL}}. "
+            f"Last error: {err}"
+        )
+    if "localhost" in lowered or "127.0.0.1" in lowered:
+        return (
+            "DATABASE_URL still points at localhost. In Railway Variables set "
+            "DATABASE_URL=${{Postgres.DATABASE_URL}} from the pgvector service. "
+            f"Last error: {err}"
+        )
+    return f"Query API cannot reach Postgres. {err}"
+
+
 def _boot_store(
     app: FastAPI,
     cfg: Settings,
@@ -82,12 +102,12 @@ def _boot_store(
     """Connect (and optionally migrate) after the process is already listening."""
     while True:
         try:
-            if cfg.require_postgres:
-                wait_for_postgres(cfg)
-            if migrate:
-                applied = apply_migrations(cfg.database_url)
-                log.info("boot migrate applied=%s", applied)
+            cfg.database_url = resolve_database_url(cfg.database_url)
             store = connect_store(cfg)
+            if migrate:
+                db_url = store.database_url if isinstance(store, PostgresRepository) else cfg.database_url
+                applied = apply_migrations(db_url)
+                log.info("boot migrate applied=%s", applied)
             _attach_store(
                 app,
                 store,
@@ -195,31 +215,28 @@ def create_app(
             return
         raise HTTPException(status_code=401, detail="invalid or missing API shared secret")
 
+    def _unavailable() -> HTTPException:
+        return HTTPException(
+            status_code=503,
+            detail=pending_store_detail(getattr(app.state, "boot_error", None)),
+        )
+
     def query_svc() -> QueryService:
         svc = getattr(app.state, "query", None)
         if svc is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Query API is connecting to Postgres. Retry in a few seconds.",
-            )
+            raise _unavailable()
         return svc
 
     def copilot_svc() -> CopilotService:
         svc = getattr(app.state, "copilot", None)
         if svc is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Query API is connecting to Postgres. Retry in a few seconds.",
-            )
+            raise _unavailable()
         return svc
 
     def repo_svc() -> DocumentRepository:
         current = getattr(app.state, "repo", None)
         if current is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Query API is connecting to Postgres. Retry in a few seconds.",
-            )
+            raise _unavailable()
         return current
 
     def parse_filters(
@@ -255,7 +272,14 @@ def create_app(
     def health():
         current = getattr(app.state, "repo", None)
         if current is None:
-            return {"status": "starting", "store": "pending"}
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "starting",
+                    "store": "pending",
+                    "detail": pending_store_detail(getattr(app.state, "boot_error", None)),
+                },
+            )
         return {"status": "ok", "store": _store_kind(current)}
 
     @app.get("/")

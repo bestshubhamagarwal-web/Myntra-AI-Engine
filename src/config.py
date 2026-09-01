@@ -116,6 +116,14 @@ class Settings(BaseSettings):
     require_postgres: bool = False
     postgres_wait_seconds: float = 60.0
 
+    @field_validator("database_url")
+    @classmethod
+    def strip_database_url(cls, value: str) -> str:
+        url = (value or "").strip().strip('"').strip("'")
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://") :]
+        return url
+
     @field_validator("groq_base_url")
     @classmethod
     def groq_host_only(cls, value: str) -> str:

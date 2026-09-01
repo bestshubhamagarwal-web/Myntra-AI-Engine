@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import psycopg
-
 from src.config import Settings
+from src.db.connect import postgres_connect
 
 FOUNDATION_TABLES: tuple[str, ...] = (
     "raw_documents",
@@ -35,7 +34,7 @@ class FoundationCheck:
 
 def check_postgres_foundation(database_url: str) -> FoundationCheck:
     """EV-0-02/03/04/06: required tables, unique key, vector(1024), query seeds."""
-    with psycopg.connect(database_url, connect_timeout=8) as conn:
+    with postgres_connect(database_url, connect_timeout=8) as conn:
         ext = conn.execute(
             "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
         ).fetchone()
