@@ -105,7 +105,7 @@ def normalize_database_url(url: str) -> str:
         if host.endswith(".rlwy.net") or host.endswith(".railway.app"):
             cleaned = _set_query_param(cleaned, "sslmode", "require")
         elif host.endswith(".railway.internal"):
-            cleaned = _set_query_param(cleaned, "sslmode", "prefer")
+            cleaned = _set_query_param(cleaned, "sslmode", "disable")
     return cleaned
 
 
@@ -140,6 +140,61 @@ def _discover_railway_database_url(skip: str = "") -> str:
     return ""
 
 
+def rewrite_to_ipv6_literal(url: str) -> str:
+    """Railway private DNS is often IPv6-only; libpq may try a dead IPv4 first."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    port = parsed.port or 5432
+    if not host or host.startswith("["):
+        return ""
+    try:
+        infos = socket.getaddrinfo(host, port, socket.AF_INET6, socket.SOCK_STREAM)
+    except OSError:
+        return ""
+    if not infos:
+        return ""
+    ip = infos[0][4][0]
+    user = parsed.username or ""
+    password = parsed.password
+    auth = quote_plus(user, safe="")
+    if password is not None:
+        auth += ":" + quote_plus(password, safe="")
+    path = parsed.path or "/railway"
+    rebuilt = f"postgresql://{auth}@[{ip}]:{port}{path}"
+    if parsed.query:
+        rebuilt += f"?{parsed.query}"
+    return rebuilt
+
+
+def iter_database_urls(explicit: str) -> list[str]:
+    """Private Railway URL first, then public proxy, then other injected URLs."""
+    seen: list[str] = []
+    out: list[str] = []
+
+    def add(raw: str) -> None:
+        url = normalize_database_url(raw or "")
+        if not url or url in seen or "${{" in url:
+            return
+        host = _hostname(url)
+        if not host:
+            return
+        seen.append(url)
+        out.append(url)
+
+    add(explicit)
+    add(resolve_database_url(explicit))
+    for key in (
+        "DATABASE_PUBLIC_URL",
+        "DATABASE_PRIVATE_URL",
+        "POSTGRES_URL",
+        "POSTGRES_PRISMA_URL",
+    ):
+        add(os.environ.get(key) or "")
+    add(url_from_pg_env())
+    add(_discover_railway_database_url(skip=explicit))
+    return out
+
+
 def resolve_database_url(explicit: str) -> str:
     """Prefer a reachable Railway URL when DATABASE_URL is local, empty, or a ${{…}} stub."""
     raw = normalize_database_url(explicit)
@@ -162,7 +217,7 @@ def resolve_database_url(explicit: str) -> str:
 
 def conninfo_candidates(database_url: str) -> list[str]:
     """Try TLS modes that Railway public vs private hosts actually accept."""
-    url = resolve_database_url(database_url)
+    url = normalize_database_url(database_url)
     if not url:
         return []
     seen: list[str] = []
@@ -173,10 +228,19 @@ def conninfo_candidates(database_url: str) -> list[str]:
             seen.append(candidate)
             out.append(candidate)
 
-    add(url)
-    add(_set_query_param(url, "sslmode", "require"))
-    add(_set_query_param(url, "sslmode", "prefer"))
-    add(_set_query_param(url, "sslmode", "disable"))
+    host = _hostname(url)
+    if host.endswith(".railway.internal"):
+        disabled = _set_query_param(url, "sslmode", "disable")
+        add(disabled)
+        ipv6 = rewrite_to_ipv6_literal(disabled)
+        add(ipv6)
+        add(_set_query_param(url, "sslmode", "prefer"))
+        add(_set_query_param(url, "sslmode", "require"))
+    else:
+        add(url)
+        add(_set_query_param(url, "sslmode", "require"))
+        add(_set_query_param(url, "sslmode", "prefer"))
+        add(_set_query_param(url, "sslmode", "disable"))
     return out
 
 
@@ -232,49 +296,85 @@ def postgres_connect(database_url: str, **kwargs):
     raise PostgresRequiredError(POSTGRES_UNREACHABLE)
 
 
-def try_postgres(cfg: Settings, *, tcp_timeout: float = 1.0, connect_timeout: int = 2) -> PostgresRepository | None:
+def try_postgres(
+    cfg: Settings,
+    *,
+    tcp_timeout: float = 1.0,
+    connect_timeout: int = 2,
+    errors: list[str] | None = None,
+) -> PostgresRepository | None:
     """Return a repo when handshake succeed; otherwise None."""
-    url = resolve_database_url(cfg.database_url)
-    host = _hostname(url)
-    if not host or "${{" in (url or ""):
-        return None
-    # TCP pre-check is only for loopback: Windows psycopg can hang on localhost.
-    # Railway private DNS is IPv6; a Python TCP probe there false-negatives.
-    if is_loopback_host(host) and not postgres_tcp_open(url, timeout=tcp_timeout):
-        return None
-    try:
-        working = handshake_database_url(url, connect_timeout=connect_timeout)
-        cfg.database_url = working
-        return PostgresRepository(working)
-    except Exception as exc:  # noqa: BLE001 — caller retries or falls back
-        log.warning("Postgres handshake failed (%s).", exc)
-        return None
+    last_exc: Exception | None = None
+    for url in iter_database_urls(cfg.database_url):
+        host = _hostname(url)
+        if not host or "${{" in url:
+            continue
+        # TCP pre-check is only for loopback: Windows psycopg can hang on localhost.
+        # Railway private DNS is IPv6; a Python TCP probe there false-negatives.
+        if is_loopback_host(host) and not postgres_tcp_open(url, timeout=tcp_timeout):
+            continue
+        try:
+            working = handshake_database_url(url, connect_timeout=connect_timeout)
+            cfg.database_url = working
+            return PostgresRepository(working)
+        except Exception as exc:  # noqa: BLE001 — try public URL / next host
+            last_exc = exc
+            note = f"{host}: {exc}"
+            if errors is not None:
+                errors.append(note)
+            log.warning("Postgres handshake failed host=%s (%s).", host, exc)
+    if last_exc is not None:
+        cfg.database_url = resolve_database_url(cfg.database_url) or cfg.database_url
+        log.warning("Postgres handshake failed (%s).", last_exc)
+    return None
 
 
 def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> PostgresRepository:
     """Retry until Postgres accepts connections or the wait budget is spent."""
     cfg.database_url = resolve_database_url(cfg.database_url)
     host = _hostname(cfg.database_url)
+    urls = iter_database_urls(cfg.database_url)
     if cfg.require_postgres and on_railway():
-        if not host or "${{" in (cfg.database_url or ""):
-            raise PostgresRequiredError(RAILWAY_INVALID_URL)
-        if is_loopback_host(host):
+        if not urls:
+            if not host or "${{" in (cfg.database_url or ""):
+                raise PostgresRequiredError(RAILWAY_INVALID_URL)
+            if is_loopback_host(host):
+                raise PostgresRequiredError(RAILWAY_LOCAL_URL)
+        elif all(is_loopback_host(_hostname(item)) for item in urls):
             raise PostgresRequiredError(RAILWAY_LOCAL_URL)
     budget = cfg.postgres_wait_seconds if total_seconds is None else total_seconds
     deadline = time.monotonic() + max(0.0, float(budget))
     tcp_timeout = 3.0 if cfg.require_postgres else 1.0
     connect_timeout = 8 if cfg.require_postgres else 2
     last_note = "not attempted"
+    last_errors: list[str] = []
     while True:
-        repo = try_postgres(cfg, tcp_timeout=tcp_timeout, connect_timeout=connect_timeout)
+        last_errors = []
+        repo = try_postgres(
+            cfg,
+            tcp_timeout=tcp_timeout,
+            connect_timeout=connect_timeout,
+            errors=last_errors,
+        )
         if repo is not None:
             cfg.database_url = repo.database_url
             return repo
-        last_note = f"not listening or handshake failed (host={_hostname(cfg.database_url) or 'unknown'})"
+        host_now = _hostname(cfg.database_url) or "unknown"
+        last_note = f"not listening or handshake failed (host={host_now})"
+        if last_errors:
+            last_note += " " + last_errors[-1]
         if time.monotonic() >= deadline:
             break
         time.sleep(2.0)
-    raise PostgresRequiredError(f"{POSTGRES_REQUIRED} Last check: {last_note}.")
+    extra = ""
+    if host.endswith(".railway.internal") or any(
+        _hostname(item).endswith(".railway.internal") for item in urls
+    ):
+        extra = (
+            " Private host failed. Paste DATABASE_PUBLIC_URL from the database "
+            "service (host ends with .rlwy.net) onto the API, with sslmode=require."
+        )
+    raise PostgresRequiredError(f"{POSTGRES_REQUIRED} Last check: {last_note}.{extra}")
 
 
 def connect_store(cfg: Settings) -> DocumentRepository:

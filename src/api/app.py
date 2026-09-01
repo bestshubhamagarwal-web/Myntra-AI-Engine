@@ -104,6 +104,15 @@ def pending_store_detail(boot_error: str | None) -> str:
             "Railway database service (postgresql://…railway.internal… or …rlwy.net…), "
             f"paste it on the API, redeploy. Last error: {err}"
         )
+    if "railway.internal" in lowered:
+        return (
+            "Private host postgres.railway.internal is not reachable from the API "
+            "(Railway private network is IPv6; SSL is often wrong internally). "
+            "On the database service copy DATABASE_PUBLIC_URL (host ends with "
+            ".proxy.rlwy.net), paste it as the API DATABASE_URL. If it has no "
+            "sslmode, add ?sslmode=require then redeploy. "
+            f"Last error: {err}"
+        )
     return f"Query API cannot reach Postgres. {err}"
 
 
