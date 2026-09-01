@@ -671,7 +671,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from src.api.app import create_app
 
     settings.ensure_runtime_dirs()
-    if getattr(args, "migrate", False):
+    do_migrate = bool(getattr(args, "migrate", False))
+    if do_migrate and not settings.require_postgres:
         if _wait_for_required_postgres(settings) != 0:
             return 1
         try:
@@ -684,17 +685,21 @@ def cmd_serve(args: argparse.Namespace) -> int:
         else:
             print("migrations already applied")
     try:
-        app = create_app(settings=settings)
+        app = create_app(settings=settings, migrate_on_boot=do_migrate and settings.require_postgres)
     except PostgresRequiredError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     store = app.state.repo
-    if isinstance(store, PostgresRepository):
+    if store is None:
+        print("store: connecting in background (REQUIRE_POSTGRES)")
+    elif isinstance(store, PostgresRepository):
         print(f"store: postgres  {settings.database_url}")
     elif isinstance(store, PersistentMemoryRepository):
         print(f"store: local file  {settings.local_store_path}")
     else:
         print("store: memory")
+    if not (settings.api_shared_secret or "").strip() and host not in {"127.0.0.1", "localhost", "::1"}:
+        print("warning: API_SHARED_SECRET is empty on a public bind", file=sys.stderr)
     print(f"Query API: http://{host}:{port}/docs")
     print("UI:        http://localhost:3000")
     uvicorn.run(app, host=host, port=int(port))

@@ -181,6 +181,10 @@ class Settings(BaseSettings):
         secret = (self.api_shared_secret or "").strip()
         public = host not in {"127.0.0.1", "localhost", "::1"}
         if public and not secret:
+            # Railway injects PORT. Exiting here means nothing listens and Vercel
+            # sees Railway's 502 "Application failed to respond".
+            if (os.environ.get("PORT") or "").strip():
+                return
             raise ValueError(
                 "API_SHARED_SECRET is required when binding beyond localhost "
                 f"(API_HOST={host}). Prototype auth is a shared secret."

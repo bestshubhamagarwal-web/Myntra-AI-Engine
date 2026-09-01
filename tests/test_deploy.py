@@ -52,3 +52,26 @@ def test_local_dev_still_falls_back_to_pickle_when_postgres_down(tmp_path):
     )
     store = connect_store(settings)
     assert isinstance(store, PersistentMemoryRepository)
+
+
+def test_require_postgres_health_listens_before_db(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+
+    settings = Settings(
+        database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
+        require_postgres=True,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+        api_shared_secret="deploy-secret",
+    )
+    app = create_app(settings=settings)
+    client = TestClient(app)
+    health = client.get("/health")
+    assert health.status_code == 200
+    body = health.json()
+    assert body["store"] in {"pending", "postgres"}
+    assert body["status"] in {"starting", "ok"}

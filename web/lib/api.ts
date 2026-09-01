@@ -26,14 +26,45 @@ export function setStoredApiKey(value: string): void {
   else window.sessionStorage.removeItem(API_KEY_STORAGE);
 }
 
+function errorMessageFromBody(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const body = payload as Record<string, unknown>;
+  if (typeof body.detail === "string" && body.detail.trim()) return body.detail;
+  if (Array.isArray(body.detail)) {
+    const parts = body.detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "msg" in item) {
+          return String((item as { msg: unknown }).msg);
+        }
+        return "";
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join("; ");
+  }
+  if (typeof body.message === "string" && body.message.trim()) {
+    if (/application failed to respond/i.test(body.message)) {
+      return (
+        "Railway API is not reachable (502). The public-domain port must match " +
+        "Variables → PORT on the API service (often 8080, not 443 or 5432), and " +
+        "the container must be running."
+      );
+    }
+    return body.message;
+  }
+  return "";
+}
+
 async function parseError(res: Response): Promise<string> {
   try {
-    const payload = (await res.json()) as { detail?: string };
-    if (payload?.detail) return String(payload.detail);
+    const text = errorMessageFromBody(await res.json());
+    if (text) return text;
   } catch {
     /* ignore */
   }
-  return res.statusText || "Request failed";
+  const statusText = (res.statusText || "").trim();
+  if (statusText) return res.status ? `${res.status} ${statusText}` : statusText;
+  return res.status ? `Request failed (${res.status})` : "Request failed";
 }
 
 export async function queryFetch(path: string, init: RequestInit = {}): Promise<Response> {

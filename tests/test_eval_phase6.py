@@ -40,6 +40,19 @@ def _iter_web_ts() -> list[Path]:
     return files
 
 
+def test_vercel_proxy_rejects_localhost_on_vercel() -> None:
+    backend = (WEB / "lib" / "backend.ts").read_text(encoding="utf-8")
+    route = (WEB / "app" / "api" / "query" / "[...path]" / "route.ts").read_text(encoding="utf-8")
+    assert "isVercelRuntime" in backend
+    assert "up.railway.app" in backend
+    assert "railway.internal" in backend
+    assert "ipv4first" in route
+    assert "resolveBackendBase" in route
+    api = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
+    assert "errorMessageFromBody" in api
+    assert "application failed to respond" in api.lower()
+
+
 def test_ev_6_19_nextjs_not_streamlit() -> None:
     package = (WEB / "package.json").read_text(encoding="utf-8")
     assert '"next"' in package

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from uuid import UUID, uuid4
 
 import psycopg
@@ -29,11 +31,76 @@ from src.api.schemas import (
     TrendsResponse,
 )
 from src.config import Settings, load_settings
-from src.db.connect import POSTGRES_UNREACHABLE, connect_store
+from src.db.connect import POSTGRES_UNREACHABLE, connect_store, wait_for_postgres
+from src.db.local import PersistentMemoryRepository
+from src.db.migrate import apply_migrations
 from src.db.postgres import PostgresRepository
 from src.db.repository import DocumentRepository
 
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+log = logging.getLogger(__name__)
+VERCEL_ORIGIN_RE = r"https://([a-z0-9-]+\.)*vercel\.app"
+
+
+def _store_kind(store: DocumentRepository | None) -> str:
+    if store is None:
+        return "pending"
+    if isinstance(store, PostgresRepository):
+        return "postgres"
+    if isinstance(store, PersistentMemoryRepository):
+        return "memory"
+    return "memory"
+
+
+def _attach_store(
+    app: FastAPI,
+    store: DocumentRepository,
+    cfg: Settings,
+    *,
+    embed_query=None,
+    complete_tools=None,
+) -> None:
+    app.state.repo = store
+    app.state.query = QueryService(store, cfg)
+    app.state.copilot = CopilotService(
+        store,
+        cfg,
+        embed_query=embed_query,
+        complete_tools=complete_tools,
+    )
+    app.state.boot_error = None
+
+
+def _boot_store(
+    app: FastAPI,
+    cfg: Settings,
+    *,
+    migrate: bool,
+    embed_query=None,
+    complete_tools=None,
+) -> None:
+    """Connect (and optionally migrate) after the process is already listening."""
+    while True:
+        try:
+            if cfg.require_postgres:
+                wait_for_postgres(cfg)
+            if migrate:
+                applied = apply_migrations(cfg.database_url)
+                log.info("boot migrate applied=%s", applied)
+            store = connect_store(cfg)
+            _attach_store(
+                app,
+                store,
+                cfg,
+                embed_query=embed_query,
+                complete_tools=complete_tools,
+            )
+            log.info("store ready kind=%s", _store_kind(store))
+            return
+        except Exception as exc:  # noqa: BLE001 — keep listening; retry
+            app.state.boot_error = str(exc)
+            log.warning("store boot retry: %s", exc)
+            time.sleep(0.05 if float(cfg.postgres_wait_seconds) <= 0 else 3.0)
 
 
 def create_app(
@@ -42,16 +109,17 @@ def create_app(
     *,
     embed_query=None,
     complete_tools=None,
+    migrate_on_boot: bool = False,
 ) -> FastAPI:
     cfg = settings or load_settings()
-    store = repo if repo is not None else connect_store(cfg)
-    query = QueryService(store, cfg)
-    copilot = CopilotService(
-        store,
-        cfg,
-        embed_query=embed_query,
-        complete_tools=complete_tools,
-    )
+    defer = repo is None and cfg.require_postgres
+    store: DocumentRepository | None
+    if repo is not None:
+        store = repo
+    elif defer:
+        store = None
+    else:
+        store = connect_store(cfg)
 
     app = FastAPI(
         title="Myntra Discovery Engine Query API",
@@ -60,7 +128,7 @@ def create_app(
             "Single metrics path for the Phase 6 Next.js app and Copilot tools. "
             "SoV, impact, and confidence are read from theme_metrics — the client "
             "must not re-aggregate. Prototype auth: shared secret header X-API-Key "
-            "(optional on localhost). CORS allows the local Next.js origin."
+            "(optional on localhost). CORS allows the local Next.js origin and https://*.vercel.app."
         ),
         openapi_tags=[
             {"name": "metrics", "description": "Precomputed theme_metrics + n-grams"},
@@ -71,13 +139,39 @@ def create_app(
     )
     app.state.settings = cfg
     app.state.repo = store
-    app.state.query = query
-    app.state.copilot = copilot
+    app.state.query = None
+    app.state.copilot = None
+    app.state.boot_error = None
+    if store is not None:
+        _attach_store(
+            app,
+            store,
+            cfg,
+            embed_query=embed_query,
+            complete_tools=complete_tools,
+        )
+    elif defer:
+        threading.Thread(
+            target=_boot_store,
+            kwargs={
+                "app": app,
+                "cfg": cfg,
+                "migrate": migrate_on_boot,
+                "embed_query": embed_query,
+                "complete_tools": complete_tools,
+            },
+            name="store-boot",
+            daemon=True,
+        ).start()
 
-    origins = cfg.cors_origin_list() or ["http://localhost:3000"]
+    origins = cfg.cors_origin_list() or [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
+        allow_origin_regex=VERCEL_ORIGIN_RE,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -100,6 +194,33 @@ def create_app(
         if x_api_key == secret or bearer == secret:
             return
         raise HTTPException(status_code=401, detail="invalid or missing API shared secret")
+
+    def query_svc() -> QueryService:
+        svc = getattr(app.state, "query", None)
+        if svc is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Query API is connecting to Postgres. Retry in a few seconds.",
+            )
+        return svc
+
+    def copilot_svc() -> CopilotService:
+        svc = getattr(app.state, "copilot", None)
+        if svc is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Query API is connecting to Postgres. Retry in a few seconds.",
+            )
+        return svc
+
+    def repo_svc() -> DocumentRepository:
+        current = getattr(app.state, "repo", None)
+        if current is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Query API is connecting to Postgres. Retry in a few seconds.",
+            )
+        return current
 
     def parse_filters(
         date_from: str | None = Query(default=None),
@@ -131,19 +252,21 @@ def create_app(
         )
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        kind = "postgres" if isinstance(store, PostgresRepository) else "memory"
-        return {"status": "ok", "store": kind}
+    def health():
+        current = getattr(app.state, "repo", None)
+        if current is None:
+            return {"status": "starting", "store": "pending"}
+        return {"status": "ok", "store": _store_kind(current)}
 
     @app.get("/")
-    def root() -> dict[str, str]:
-        kind = "postgres" if isinstance(store, PostgresRepository) else "memory"
+    def root():
+        current = getattr(app.state, "repo", None)
         return {
-            "status": "ok",
+            "status": "ok" if current is not None else "starting",
             "service": "Myntra Discovery Engine Query API",
             "docs": "/docs",
             "health": "/health",
-            "store": kind,
+            "store": _store_kind(current),
         }
 
     @app.get(
@@ -153,7 +276,7 @@ def create_app(
         dependencies=[Depends(require_auth)],
     )
     def metrics_overview(filters: GlobalFilters = Depends(parse_filters)):
-        return query.overview(filters)
+        return query_svc().overview(filters)
 
     @app.get(
         "/metrics/themes",
@@ -162,7 +285,7 @@ def create_app(
         dependencies=[Depends(require_auth)],
     )
     def metrics_themes(filters: GlobalFilters = Depends(parse_filters)):
-        return query.themes(filters)
+        return query_svc().themes(filters)
 
     @app.get(
         "/metrics/segments",
@@ -176,7 +299,7 @@ def create_app(
     ):
         if dimension not in SEGMENT_DIMENSIONS:
             dimension = "product_category"
-        return query.segments(filters, dimension=dimension)
+        return query_svc().segments(filters, dimension=dimension)
 
     @app.get(
         "/metrics/trends",
@@ -185,7 +308,7 @@ def create_app(
         dependencies=[Depends(require_auth)],
     )
     def metrics_trends(filters: GlobalFilters = Depends(parse_filters)):
-        return query.trends(filters)
+        return query_svc().trends(filters)
 
     @app.get(
         "/metrics/ngrams",
@@ -198,7 +321,7 @@ def create_app(
         n: int | None = Query(default=None),
         limit: int = Query(default=50, ge=1, le=500),
     ):
-        return query.ngrams(filters, n=n, limit=limit)
+        return query_svc().ngrams(filters, n=n, limit=limit)
 
     @app.get(
         "/evidence",
@@ -220,9 +343,9 @@ def create_app(
             request.headers.get("accept") or ""
         )
         if want_csv:
-            body = query.evidence_csv(filters)
+            body = query_svc().evidence_csv(filters)
             return PlainTextResponse(body, media_type="text/csv; charset=utf-8")
-        payload = query.evidence(filters, limit=limit)
+        payload = query_svc().evidence(filters, limit=limit)
         return EvidenceResponse.model_validate(payload)
 
     @app.get(
@@ -232,7 +355,7 @@ def create_app(
         dependencies=[Depends(require_auth)],
     )
     def reports():
-        return query.reports()
+        return query_svc().reports()
 
     @app.get(
         "/reports/{report_id}",
@@ -241,11 +364,11 @@ def create_app(
     )
     def report_download(report_id: UUID, format: str | None = Query(default=None)):
         if (format or "").lower() == "json":
-            payload = query.report_detail(report_id)
+            payload = query_svc().report_detail(report_id)
             if payload is None:
                 raise HTTPException(status_code=404, detail="report not found")
             return payload
-        pdf_path = query.resolve_report_pdf(report_id)
+        pdf_path = query_svc().resolve_report_pdf(report_id)
         if pdf_path is None:
             raise HTTPException(status_code=404, detail="report PDF not on disk")
         return FileResponse(
@@ -273,13 +396,15 @@ def create_app(
             theme_id=body.theme_id,
         )
         try:
-            turn = copilot.query_turn(body.question, filters, session_id=body.session_id)
+            turn = copilot_svc().query_turn(body.question, filters, session_id=body.session_id)
+        except HTTPException:
+            raise
         except Exception as exc:  # noqa: BLE001 — chat UI must not see a 500
             logging.getLogger(__name__).exception("copilot HTTP handler failed")
             pack: dict = {}
             try:
-                pack["themes"] = query.themes(filters)
-                pack["retrieval_rows"] = retrieve_quotes(store, body.question, limit=6)
+                pack["themes"] = query_svc().themes(filters)
+                pack["retrieval_rows"] = retrieve_quotes(repo_svc(), body.question, limit=6)
             except Exception:
                 logging.getLogger(__name__).exception("copilot emergency prefetch failed")
             turn = {
