@@ -56,6 +56,7 @@ def test_vercel_proxy_rejects_localhost_on_vercel() -> None:
     assert "neon.tech" in backend
     assert "proxyQuery" in route
     assert "dynamicParams" in route
+    assert "Promise<{ path: string[] }>" in route
     assert "metrics" in overview
     assert "resolveBackendBase" in proxy
     api = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")

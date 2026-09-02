@@ -57,7 +57,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
   }
 
   let lastError =
-    "Query API unreachable. On a Vercel Services deploy the web→api binding injects API_BASE_URL; Redeploy if it is missing. If you split projects, set API_BASE_URL to https://<api-project>.vercel.app.";
+    "Query API unreachable. On the dashboard Vercel project set API_BASE_URL to the FastAPI origin (https://<api-project>.vercel.app).";
   const attempts = req.method === "GET" || req.method === "HEAD" ? 3 : 1;
   const timeoutMs = req.method === "POST" ? 110_000 : 20_000;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -71,7 +71,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
         return NextResponse.json(
           {
             detail:
-              "Query API is not reachable (502). Confirm the Vercel project Framework is Services (web + api). Do not paste Neon/Postgres into API_BASE_URL. Open /api/query/health and confirm store=postgres.",
+              "Query API is not reachable (502). Set API_BASE_URL to https://<api-project>.vercel.app (the FastAPI Vercel project, not Neon/Postgres). Confirm /health returns store=postgres.",
           },
           { status: 502 },
         );
@@ -83,7 +83,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
       ) {
         return NextResponse.json(
           {
-            detail: `Query API 404 at ${target.origin}${target.pathname}. The proxy should call FastAPI paths like /health and /metrics/overview (no /api prefix). Redeploy the Services project, or set API_BASE_URL to https://<api-project>.vercel.app with no path if you split projects.`,
+            detail: `Query API 404 at ${target.origin}${target.pathname}. Set the dashboard project's API_BASE_URL to the FastAPI Vercel origin (https://<api-project>.vercel.app) with no path, then Redeploy.`,
           },
           { status: 404 },
         );

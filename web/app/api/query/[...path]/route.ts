@@ -8,21 +8,21 @@ export const dynamicParams = true;
 export const fetchCache = "force-no-store";
 export const maxDuration = 120;
 
-type Ctx = { params: Promise<{ path?: string[] | string }> | { path?: string[] | string } };
+type RouteContext = { params: Promise<{ path: string[] }> };
 
-async function handle(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
-  const params = await ctx.params;
-  return proxyQuery(req, pathSegments(params?.path));
+async function handle(req: NextRequest, ctx: RouteContext): Promise<NextResponse> {
+  const { path } = await ctx.params;
+  return proxyQuery(req, pathSegments(path));
 }
 
-export async function GET(req: NextRequest, ctx: Ctx) {
+export async function GET(req: NextRequest, ctx: RouteContext) {
   return handle(req, ctx);
 }
 
-export async function POST(req: NextRequest, ctx: Ctx) {
+export async function POST(req: NextRequest, ctx: RouteContext) {
   return handle(req, ctx);
 }
 
-export async function HEAD(req: NextRequest, ctx: Ctx) {
+export async function HEAD(req: NextRequest, ctx: RouteContext) {
   return handle(req, ctx);
 }

@@ -4,7 +4,7 @@ Research prototype: ingest public Myntra conversation data, structure it, and (l
 
 **Phase 0** is the foundation: a runnable repo, Postgres + pgvector, a frozen raw envelope, and Groq + local BGE-M3 smokes. Generation is Groq-only; embeddings are local BGE-M3. Do not add OpenAI chat or embedding keys.
 
-**Deploy:** FastAPI Query API and Next.js dashboard ship as **one** [Vercel](https://vercel.com) project (Framework = Services) from [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine). Postgres + pgvector lives on [Neon](https://neon.tech) (Vercel Marketplace). See [docs/deployment-plan.md](docs/deployment-plan.md).
+**Deploy:** FastAPI Query API and Next.js dashboard are two [Vercel](https://vercel.com) projects from [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine). Postgres + pgvector lives on [Neon](https://neon.tech) (Vercel Marketplace). See [docs/deployment-plan.md](docs/deployment-plan.md).
 
 ## Setup
 

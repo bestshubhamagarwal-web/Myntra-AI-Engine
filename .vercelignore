@@ -1,6 +1,4 @@
-# Shared ignore for the Vercel Services deployment (repo root).
-# Do not ignore web/ — the Next.js service is built from that folder.
-# The FastAPI function still drops web/ via excludeFiles in vercel.json.
+web
 tests
 docs
 data

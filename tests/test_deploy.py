@@ -42,17 +42,10 @@ def test_vercel_fastapi_entrypoint_and_requirements():
     assert "app =" in entry
     assert "migrate_on_boot" in entry
     vercel = (root / "vercel.json").read_text(encoding="utf-8")
-    assert '"services"' in vercel
-    assert '"web"' in vercel
-    assert '"api"' in vercel
-    assert "api.index:app" in vercel
     assert "api/index.py" in vercel
     assert "maxDuration" in vercel
     assert "fastapi" in vercel.lower()
-    assert "nextjs" in vercel.lower()
-    assert "API_BASE_URL" in vercel
-    ignore = (root / ".vercelignore").read_text(encoding="utf-8")
-    assert not any(line.strip() == "web" for line in ignore.splitlines())
+    assert '"services"' not in vercel
     req = (root / "requirements.txt").read_text(encoding="utf-8").lower()
     packages = "\n".join(
         line for line in req.splitlines() if line.strip() and not line.strip().startswith("#")
