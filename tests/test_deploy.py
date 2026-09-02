@@ -207,6 +207,78 @@ def test_create_app_on_vercel_does_not_crash_without_postgres(monkeypatch):
     assert body["status"] in {"starting", "ok"}
 
 
+def test_hosted_vercel_skips_local_dev(monkeypatch):
+    from src.config import hosted_vercel, running_on_vercel, vercel_local_dev
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("VERCEL_ENV", "development")
+    assert running_on_vercel() is True
+    assert vercel_local_dev() is True
+    assert hosted_vercel() is False
+
+
+def test_local_root_is_ready_without_postgres(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+    from src.config import Settings
+
+    settings = Settings(
+        database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
+        require_postgres=False,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    body = TestClient(create_app(settings=settings)).get("/").json()
+    assert body["status"] == "ok"
+    assert body["store"] == "memory"
+    assert "pending" not in body["store"]
+
+
+def test_vercel_dev_root_is_ready_without_postgres(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+    from src.config import Settings
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("VERCEL_ENV", "development")
+    monkeypatch.delenv("REQUIRE_POSTGRES", raising=False)
+    monkeypatch.setenv("POSTGRES_WAIT_SECONDS", "0")
+    settings = Settings(
+        database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
+        require_postgres=False,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    body = TestClient(create_app(settings=settings)).get("/").json()
+    assert body["status"] == "ok"
+    assert body["store"] == "memory"
+
+
+def test_local_require_postgres_falls_back_to_file_store(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+    from src.config import Settings
+
+    settings = Settings(
+        database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
+        require_postgres=True,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    body = TestClient(create_app(settings=settings)).get("/").json()
+    assert body["status"] == "ok"
+    assert body["store"] == "memory"
+
+
 def test_create_app_on_vercel_does_not_connect_store_at_import(monkeypatch):
     from src.api.app import create_app
     from src.db import connect as connect_mod
@@ -895,11 +967,13 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     assert "project" in railway_dns.lower()
 
 
-def test_require_postgres_health_listens_before_db(tmp_path):
+def test_require_postgres_health_listens_before_db(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from src.api.app import create_app
 
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("POSTGRES_WAIT_SECONDS", "0")
     settings = Settings(
         database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
         require_postgres=True,
@@ -923,11 +997,19 @@ def test_require_postgres_health_listens_before_db(tmp_path):
         assert "Postgres" in overview.json()["detail"]
 
 
-def test_pending_metrics_surface_boot_error(tmp_path):
+def test_pending_metrics_surface_boot_error(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from src.api.app import create_app
+    from src.db.connect import PostgresRequiredError
 
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("POSTGRES_WAIT_SECONDS", "0")
+
+    def boom(_cfg):
+        raise PostgresRequiredError('extension "vector" is not available')
+
+    monkeypatch.setattr("src.api.app.connect_store", boom)
     settings = Settings(
         database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
         require_postgres=True,
@@ -938,7 +1020,6 @@ def test_pending_metrics_surface_boot_error(tmp_path):
         api_shared_secret="deploy-secret",
     )
     app = create_app(settings=settings)
-    app.state.boot_error = 'extension "vector" is not available'
     client = TestClient(app)
     overview = client.get("/metrics/overview", headers={"X-API-Key": "deploy-secret"})
     assert overview.status_code == 503

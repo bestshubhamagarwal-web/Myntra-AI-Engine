@@ -226,6 +226,18 @@ def _boot_store(
         time.sleep(0.05 if float(cfg.postgres_wait_seconds) <= 0 else 3.0)
 
 
+def _connect_or_local_file(cfg: Settings) -> DocumentRepository:
+    """Postgres, then the laptop pickle store. Hosted platforms never pickle."""
+    try:
+        return connect_store(cfg)
+    except PostgresRequiredError:
+        if on_hosted_platform():
+            raise
+        log.warning("Postgres unreachable locally; using file store at %s.", cfg.local_store_path)
+        cfg.require_postgres = False
+        return connect_store(cfg)
+
+
 def create_app(
     repo: DocumentRepository | None = None,
     settings: Settings | None = None,
@@ -239,7 +251,7 @@ def create_app(
         apply_vercel_runtime_defaults()
         cfg.apply_vercel_filesystem()
     cfg.ensure_runtime_dirs()
-    defer = repo is None and (cfg.require_postgres or on_vercel())
+    defer = repo is None and on_hosted_platform()
     store: DocumentRepository | None = None
     boot_error: str | None = None
     if repo is not None:
@@ -248,8 +260,10 @@ def create_app(
         store = None
     else:
         try:
-            store = connect_store(cfg)
-        except (OSError, PostgresRequiredError) as exc:
+            store = _connect_or_local_file(cfg)
+        except Exception as exc:  # noqa: BLE001 — importing api/index.py must not crash
+            if not (on_vercel() or isinstance(exc, (OSError, PostgresRequiredError))):
+                raise
             store = None
             boot_error = str(exc)
             log.warning("store unavailable at import: %s", exc)
@@ -291,16 +305,13 @@ def create_app(
             embed_query=embed_query,
             complete_tools=complete_tools,
         )
-    elif defer:
-        if on_vercel():
-            _boot_store(once=True, **boot_kwargs)
-        else:
-            threading.Thread(
-                target=_boot_store,
-                kwargs=boot_kwargs,
-                name="store-boot",
-                daemon=True,
-            ).start()
+    elif defer and not on_vercel():
+        threading.Thread(
+            target=_boot_store,
+            kwargs=boot_kwargs,
+            name="store-boot",
+            daemon=True,
+        ).start()
 
     origins = cfg.cors_origin_list() or [
         "http://localhost:3000",
@@ -347,7 +358,7 @@ def create_app(
     def _ensure_services() -> None:
         if getattr(app.state, "query", None) is not None:
             return
-        if on_vercel() and cfg.require_postgres:
+        if on_hosted_platform():
             _boot_store(
                 app,
                 cfg,
@@ -356,6 +367,20 @@ def create_app(
                 complete_tools=complete_tools,
                 once=True,
             )
+            return
+        try:
+            store = _connect_or_local_file(cfg)
+        except Exception as exc:  # noqa: BLE001 — health must still answer
+            app.state.boot_error = str(exc)
+            log.warning("store unavailable: %s", exc)
+            return
+        _attach_store(
+            app,
+            store,
+            cfg,
+            embed_query=embed_query,
+            complete_tools=complete_tools,
+        )
 
     def query_svc() -> QueryService:
         _ensure_services()
@@ -409,6 +434,7 @@ def create_app(
 
     @app.get("/health")
     def health():
+        _ensure_services()
         current = getattr(app.state, "repo", None)
         if current is None:
             return JSONResponse(
@@ -423,14 +449,18 @@ def create_app(
 
     @app.get("/")
     def root():
+        _ensure_services()
         current = getattr(app.state, "repo", None)
-        return {
+        payload = {
             "status": "ok" if current is not None else "starting",
             "service": "Myntra Discovery Engine Query API",
             "docs": "/docs",
             "health": "/health",
             "store": _store_kind(current),
         }
+        if current is None:
+            payload["detail"] = pending_store_detail(getattr(app.state, "boot_error", None))
+        return payload
 
     @app.get(
         "/metrics/overview",

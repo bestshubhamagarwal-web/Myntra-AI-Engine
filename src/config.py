@@ -31,15 +31,46 @@ def running_on_vercel() -> bool:
             "VERCEL_ENV",
             "VERCEL_REGION",
             "VERCEL_URL",
+            "VERCEL_OIDC_TOKEN",
+            "VERCEL_DEPLOYMENT_ID",
             "NOW_REGION",
+            "AWS_LAMBDA_FUNCTION_NAME",
+            "AWS_LAMBDA_RUNTIME_API",
+            "LAMBDA_TASK_ROOT",
         )
     ):
+        return True
+    here = Path(__file__).resolve().as_posix()
+    if "/var/task/" in here:
         return True
     return Path("/var/task/api/index.py").is_file()
 
 
+def vercel_local_dev() -> bool:
+    """True for `vercel dev` on a laptop (VERCEL=1 and VERCEL_ENV=development)."""
+    return (os.environ.get("VERCEL_ENV") or "").strip().lower() == "development"
+
+
+def hosted_vercel() -> bool:
+    """Deployed Vercel Function. Not local `python -m src.api` or `vercel dev`."""
+    return running_on_vercel() and not vercel_local_dev()
+
+
+def path_parent_unwritable(path: Path) -> bool:
+    """True when mkdir would fail because an ancestor is read-only (Vercel except /tmp)."""
+    probe = Path(path)
+    try:
+        while not probe.exists() and probe != probe.parent:
+            probe = probe.parent
+        if not probe.exists():
+            return False
+        return not os.access(str(probe), os.W_OK)
+    except OSError:
+        return True
+
+
 def _on_vercel_env() -> bool:
-    return running_on_vercel()
+    return hosted_vercel()
 
 
 def apply_vercel_runtime_defaults() -> None:
@@ -233,6 +264,8 @@ class Settings(BaseSettings):
             self.local_store_path.parent,
         ):
             try:
+                if path_parent_unwritable(path):
+                    continue
                 path.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
                 log.warning("Could not create runtime dir %s (%s).", path, exc)

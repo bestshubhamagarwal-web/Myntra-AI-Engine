@@ -58,6 +58,12 @@ HOSTED_INVALID_URL = (
     "(host *.neon.tech, sslmode=require), then redeploy."
 )
 
+HOSTED_PLACEHOLDER_URL = (
+    "DATABASE_URL is still the docs placeholder (host *.neon.tech). "
+    "Paste the real Neon connection string from the Neon dashboard "
+    "(ep-….neon.tech, sslmode=require), then redeploy."
+)
+
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 _PUBLIC_DNS = {
     "8.8.8.8",
@@ -110,9 +116,9 @@ def on_railway() -> bool:
 
 
 def on_vercel() -> bool:
-    from src.config import running_on_vercel
+    from src.config import hosted_vercel
 
-    return running_on_vercel()
+    return hosted_vercel()
 
 
 def on_hosted_platform() -> bool:
@@ -681,10 +687,10 @@ def is_placeholder_postgres_host(host: str) -> bool:
     """Docs samples like *.neon.tech are not real DNS names."""
     h = (host or "").strip().lower()
     if not h:
-        return True
+        return False
     if "*" in h or h.startswith("<") or h.endswith(">"):
         return True
-    if h in {"neon.tech", "example.com", "localhost"}:
+    if h in {"neon.tech", "example.com"}:
         return True
     return False
 
@@ -897,6 +903,8 @@ def iter_database_urls(explicit: str) -> list[str]:
             return
         host = _hostname(url)
         if not host:
+            return
+        if is_placeholder_postgres_host(host):
             return
         if on_hosted_platform() and is_loopback_host(host):
             return
@@ -1169,7 +1177,7 @@ def try_postgres(
     last_exc: Exception | None = None
     for url in iter_database_urls(cfg.database_url):
         host = _hostname(url)
-        if not host or "${{" in url:
+        if not host or "${{" in url or is_placeholder_postgres_host(host):
             continue
         # TCP pre-check is only for loopback: Windows psycopg can hang on localhost.
         # Hosted private DNS can be IPv6; a Python TCP probe there false-negatives.
@@ -1197,9 +1205,13 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
     cfg.database_url = resolve_database_url(pinned or cfg.database_url)
     host = _hostname(cfg.database_url)
     urls = iter_database_urls(cfg.database_url)
+    if cfg.require_postgres and is_placeholder_postgres_host(host):
+        raise PostgresRequiredError(HOSTED_PLACEHOLDER_URL)
     if cfg.require_postgres and on_hosted_platform():
-        remote = [item for item in urls if not is_loopback_host(_hostname(item))]
+        remote = [item for item in urls if is_remote_postgres_url(item)]
         if not remote:
+            if is_placeholder_postgres_host(host) or "*" in (cfg.database_url or ""):
+                raise PostgresRequiredError(HOSTED_PLACEHOLDER_URL)
             if _loopback_database_url_ignored or is_loopback_host(host):
                 raise PostgresRequiredError(HOSTED_LOCAL_URL)
             raise PostgresRequiredError(HOSTED_INVALID_URL)
@@ -1266,14 +1278,24 @@ def connect_store(cfg: Settings) -> DocumentRepository:
 
     When `require_postgres` is true (Vercel/Railway/Render), wait then fail hard — never pickle.
     """
+    from src.config import path_parent_unwritable
+
     apply_hosted_database_env()
     cfg.database_url = resolve_database_url(cfg.database_url)
-    if cfg.require_postgres:
+    if cfg.require_postgres or on_vercel():
         return wait_for_postgres(cfg)
 
     repo = try_postgres(cfg)
     if repo is not None:
         return repo
+    pickle_error = (
+        "Cannot create local_store.pkl "
+        f"({cfg.local_store_path}). On Vercel the filesystem is "
+        "read-only except /tmp. Set DATABASE_URL to a real Neon host "
+        "(ep-….neon.tech), not the docs placeholder *.neon.tech."
+    )
+    if path_parent_unwritable(cfg.local_store_path.parent):
+        raise PostgresRequiredError(pickle_error)
     log.warning(
         "Postgres not reachable on DATABASE_URL. Using local file store at %s.",
         cfg.local_store_path,
@@ -1281,10 +1303,5 @@ def connect_store(cfg: Settings) -> DocumentRepository:
     try:
         cfg.local_store_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise PostgresRequiredError(
-            "Cannot create local_store.pkl "
-            f"({cfg.local_store_path}: {exc}). On Vercel the filesystem is "
-            "read-only except /tmp. Set DATABASE_URL to a real Neon host "
-            "(ep-….neon.tech), not the docs placeholder *.neon.tech."
-        ) from exc
+        raise PostgresRequiredError(f"{pickle_error} ({exc})") from exc
     return PersistentMemoryRepository(cfg.local_store_path)
