@@ -1,4 +1,4 @@
-"""Render/Vercel deploy helpers (docs/deployment-plan.md)."""
+"""Railway/Vercel deploy helpers (docs/deployment-plan.md)."""
 
 import os
 from pathlib import Path
@@ -20,6 +20,19 @@ from src.db.connect import (
     _hostname,
 )
 from src.db.local import PersistentMemoryRepository
+
+
+def test_railway_toml_uses_dockerfile():
+    text = Path(__file__).resolve().parents[1].joinpath("railway.toml").read_text(encoding="utf-8")
+    assert 'builder = "DOCKERFILE"' in text
+    assert "dockerfilePath" in text
+    assert 'healthcheckPath = "/health"' in text
+    dockerfile = Path(__file__).resolve().parents[1].joinpath("Dockerfile").read_text(encoding="utf-8")
+    assert "requirements-api.txt" in dockerfile
+    assert "src.api" in dockerfile
+    assert "--migrate" in dockerfile
+    assert "--host" in dockerfile
+    assert "0.0.0.0" in dockerfile
 
 
 def test_render_blueprint_injects_postgres_url():
@@ -159,6 +172,23 @@ def test_load_settings_on_render_does_not_keep_localhost(monkeypatch):
     )
     settings = load_settings()
     assert "dpg-abc123-a" in settings.database_url
+    assert "localhost" not in settings.database_url
+
+
+def test_load_settings_on_railway_does_not_keep_localhost(monkeypatch):
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://discovery:discovery@localhost:5432/discovery",
+    )
+    monkeypatch.setenv(
+        "DATABASE_PRIVATE_URL",
+        "postgresql://u:p@postgres.railway.internal:5432/railway",
+    )
+    settings = load_settings()
+    assert "railway.internal" in settings.database_url
     assert "localhost" not in settings.database_url
 
 
@@ -558,13 +588,15 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     assert "pgvector" in vector.lower()
     reachability = pending_store_detail(
         "Postgres is required (REQUIRE_POSTGRES=true) but was not reachable. "
-        "Check DATABASE_URL (Render internal URL, or External Database URL for a laptop) "
-        "and retry. Last check: not listening or handshake failed (host=unknown)."
+        "Check DATABASE_URL (Railway private *.railway.internal URL, or "
+        "DATABASE_PUBLIC_URL for a laptop) and retry. Last check: not listening "
+        "or handshake failed (host=unknown)."
     )
     assert "Migrations need pgvector" not in reachability
-    assert "not a real postgres" in reachability.lower() or "Internal Database URL" in reachability
+    assert "railway.internal" in reachability.lower() or "not a real postgres" in reachability.lower()
     local = pending_store_detail("could not connect to server at localhost")
     assert "localhost" in local.lower()
+    assert "railway.internal" in local.lower()
     private = pending_store_detail("handshake failed (host=dpg-abc123-a)")
     assert "dpg-" in private
     tls_req = pending_store_detail(
@@ -581,6 +613,11 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     )
     assert "singapore-postgres.render.com" in dns
     assert "Singapore" in dns
+    railway_dns = pending_store_detail(
+        "failed to resolve host 'postgres.railway.internal': Name or service not known"
+    )
+    assert "railway.internal" in railway_dns
+    assert "project" in railway_dns.lower()
 
 
 def test_require_postgres_health_listens_before_db(tmp_path):

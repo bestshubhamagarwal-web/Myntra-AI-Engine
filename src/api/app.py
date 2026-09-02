@@ -82,8 +82,9 @@ def pending_store_detail(boot_error: str | None) -> str:
         or "create extension vector" in lowered
     ):
         return (
-            "Migrations need pgvector. Use Render Postgres (not a generic Postgres "
-            "image). Copy that service's Internal Database URL (postgresql://…) onto the API. "
+            "Migrations need pgvector. Use Railway's pgvector template (not default "
+            "Postgres). Copy that service's private DATABASE_URL "
+            "(postgresql://…@*.railway.internal) onto the API. "
             f"Last error: {err}"
         )
     if (
@@ -93,32 +94,57 @@ def pending_store_detail(boot_error: str | None) -> str:
         or "${{" in err
     ):
         return (
-            "DATABASE_URL on the API is not a real postgres:// URL. Open the "
-            "Postgres service → Connect, copy the Internal Database URL, paste it "
-            "on the API (it must look like postgresql://…@dpg-…/discovery). "
+            "DATABASE_URL on the API is not a real postgres:// URL. Reference the "
+            "pgvector service private URL (${{pgvector.DATABASE_URL}}, host "
+            "*.railway.internal), then redeploy. "
             f"Last error: {err}"
         )
     if "localhost" in lowered or "127.0.0.1" in lowered:
         return (
-            "DATABASE_URL still points at localhost. Copy the Internal Database URL "
-            "from the Render Postgres Connect menu (postgresql://…@dpg-…), "
-            f"paste it on the API, redeploy. Last error: {err}"
+            "DATABASE_URL still points at localhost. Set DATABASE_URL to the pgvector "
+            "private URL (postgresql://…@*.railway.internal), paste it on the API, "
+            f"redeploy. Last error: {err}"
+        )
+    if "railway.internal" in lowered:
+        return (
+            "Private Railway host is not reachable. Confirm the API and pgvector "
+            "services share a Railway project and environment, and set "
+            "DATABASE_URL=${{pgvector.DATABASE_URL}} (*.railway.internal). "
+            f"Last error: {err}"
+        )
+    if "rlwy.net" in lowered:
+        return (
+            "Railway public Postgres proxy requires TLS. Append sslmode=require, or "
+            "prefer the private *.railway.internal URL on the API service. "
+            f"Last error: {err}"
         )
     if (
         "name or service not known" in lowered
         or "failed to resolve host" in lowered
         or "did not resolve" in lowered
     ):
+        if "dpg-" in lowered or "render.com" in lowered:
+            return (
+                "Render cannot resolve the short Postgres host dpg-… (private DNS). "
+                "The API falls back to dpg-….singapore-postgres.render.com. Confirm "
+                "discovery-api and discovery-db are both in Singapore. "
+                f"Last error: {err}"
+            )
         return (
-            "Render cannot resolve the short Postgres host dpg-… (private DNS). "
-            "The API falls back to dpg-….singapore-postgres.render.com. Confirm "
-            "discovery-api and discovery-db are both in Singapore. "
+            "Postgres hostname did not resolve. On Railway, API and pgvector must be "
+            "in the same project; use ${{pgvector.DATABASE_URL}} (*.railway.internal). "
             f"Last error: {err}"
         )
     if "ssl/tls required" in lowered or "ssl required" in lowered:
+        if "dpg-" in lowered or "render.com" in lowered:
+            return (
+                "Render Postgres requires TLS on the public hostname. The API reconnects "
+                "with sslmode=require to dpg-….singapore-postgres.render.com. "
+                f"Last error: {err}"
+            )
         return (
-            "Render Postgres requires TLS on the public hostname. The API reconnects "
-            "with sslmode=require to dpg-….singapore-postgres.render.com. "
+            "Postgres requires TLS on the public hostname. Append sslmode=require "
+            "(*.rlwy.net) or use the private *.railway.internal URL on the API. "
             f"Last error: {err}"
         )
     if "ssl connection has been closed" in lowered or "hostaddr" in lowered:
@@ -132,12 +158,6 @@ def pending_store_detail(boot_error: str | None) -> str:
             "Internal Render Postgres host is not reachable from the API. Confirm "
             "discovery-api and discovery-db share a region (Singapore). Private "
             "DNS names like dpg-… only resolve on that network. "
-            f"Last error: {err}"
-        )
-    if "railway.internal" in lowered:
-        return (
-            "Private Railway host is not reachable. This deploy targets Render: "
-            "set DATABASE_URL to the Render Internal Database URL (dpg-…). "
             f"Last error: {err}"
         )
     return f"Query API cannot reach Postgres. {err}"

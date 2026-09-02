@@ -28,14 +28,15 @@ POSTGRES_UNREACHABLE = (
 
 POSTGRES_REQUIRED = (
     "Postgres is required (REQUIRE_POSTGRES=true) but was not reachable. "
-    "Check DATABASE_URL (Render internal URL, or External Database URL for a laptop) "
-    "and retry. Refusing local_store.pkl so the API cannot serve an empty corpus."
+    "Check DATABASE_URL (Railway private *.railway.internal URL, or "
+    "DATABASE_PUBLIC_URL for a laptop) and retry. Refusing local_store.pkl so "
+    "the API cannot serve an empty corpus."
 )
 
 HOSTED_LOCAL_URL = (
-    "DATABASE_URL still points at localhost on the hosted API. Open the Postgres "
-    "service → Connect, copy the Internal Database URL (postgresql://…@dpg-…), "
-    "paste it on the API service, redeploy. Do not paste the laptop .env value."
+    "DATABASE_URL still points at localhost on the hosted API. Set DATABASE_URL "
+    "to the pgvector private URL (host *.railway.internal), redeploy. "
+    "Do not paste the laptop .env value."
 )
 
 HOSTED_RENDER_DNS = (
@@ -53,9 +54,8 @@ HOSTED_RENDER_TLS = (
 
 HOSTED_INVALID_URL = (
     "DATABASE_URL is not a real Postgres URL (no hostname). On the API service "
-    "delete the current value and let the Blueprint inject it from discovery-db "
-    "(postgresql://…@dpg-…/discovery), or paste the Internal Database URL from "
-    "the Postgres Connect menu, then redeploy."
+    "set DATABASE_URL to the pgvector private URL (postgresql://…@*.railway.internal), "
+    "then redeploy."
 )
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
@@ -750,7 +750,7 @@ def url_from_libpq_kv(text: str) -> str:
 
 
 def apply_hosted_database_env() -> str:
-    """On Render, replace leftover laptop DATABASE_URL=localhost with the real DSN."""
+    """On Railway/Render, replace leftover laptop DATABASE_URL=localhost with the real DSN."""
     global _loopback_database_url_ignored
     apply_resolver_workarounds()
     if not on_hosted_platform():
@@ -1209,7 +1209,7 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
 def connect_store(cfg: Settings) -> DocumentRepository:
     """Postgres when reachable; otherwise `local_store_path` so ingest and the API share data.
 
-    When `require_postgres` is true (Render), wait then fail hard — never pickle.
+    When `require_postgres` is true (Railway/Render), wait then fail hard — never pickle.
     """
     apply_hosted_database_env()
     cfg.database_url = resolve_database_url(cfg.database_url)

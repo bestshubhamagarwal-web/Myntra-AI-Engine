@@ -4,7 +4,7 @@ Research prototype: ingest public Myntra conversation data, structure it, and (l
 
 **Phase 0** is the foundation: a runnable repo, Postgres + pgvector, a frozen raw envelope, and Groq + local BGE-M3 smokes. Generation is Groq-only; embeddings are local BGE-M3. Do not add OpenAI chat or embedding keys.
 
-**Deploy:** FastAPI on Render, Next.js on Vercel — [docs/deployment-plan.md](docs/deployment-plan.md). Backend image is the repo-root `Dockerfile`; the Vercel project root is `web/`.
+**Deploy:** FastAPI on Railway, Next.js on Vercel — [docs/deployment-plan.md](docs/deployment-plan.md). Backend image is the repo-root `Dockerfile`; the Vercel project root is `web/`.
 
 ## Setup
 

@@ -15,7 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Debian's default hosts line is `files mdns4_minimal [NOTFOUND=return] dns`.
-# That never queries DNS for single-label Render hosts like dpg-xxxxx-a.
+# Prefer DNS for hosted private names (Railway *.railway.internal).
 # ca-certificates: public-hostname TLS. Query API only — do not pip-install PyTorch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
@@ -33,5 +33,5 @@ RUN pip install --upgrade pip \
 
 EXPOSE 8000
 
-# Render injects PORT. --migrate applies SQL after Postgres attaches.
+# Railway injects PORT. --migrate applies SQL after Postgres attaches.
 CMD ["python", "-m", "src.api", "--migrate", "--host", "0.0.0.0"]

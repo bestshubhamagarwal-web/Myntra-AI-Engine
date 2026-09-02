@@ -1,6 +1,6 @@
-# Render Blueprint: FastAPI Query API + Postgres (pgvector).
-# Frontend stays on Vercel (web/). Secrets are prompted in the dashboard.
-# Docs: docs/deployment-plan.md
+# Leftover Render Blueprint. Current deploy target is Railway + Vercel
+# (docs/deployment-plan.md). Do not use this file for a new deploy.
+# Frontend stays on Vercel (web/).
 
 databases:
   - name: discovery-db

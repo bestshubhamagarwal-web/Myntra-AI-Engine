@@ -1,0 +1,11 @@
+# Railway: Query API + Copilot. Postgres is a separate pgvector service.
+# Frontend stays on Vercel (web/). Docs: docs/deployment-plan.md
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

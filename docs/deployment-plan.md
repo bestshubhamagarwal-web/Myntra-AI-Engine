@@ -1,7 +1,7 @@
 # Deployment Plan
 
 **Project:** Myntra Discovery Engine  
-**Target:** FastAPI Query API on **Render**, Next.js dashboard on **Vercel**  
+**Target:** FastAPI Query API + Postgres on **Railway**, Next.js dashboard on **Vercel**  
 **Companion:** [Architecture.md](./Architecture.md), [Runbook.md](./Runbook.md), [ImplementationPlan.md](./ImplementationPlan.md)
 
 This is a research prototype, not production scraper HA. The goal is a public (or shareable) dashboard whose numbers still come from the Query API — the UI never computes SoV, impact, or confidence.
@@ -11,28 +11,28 @@ This is a research prototype, not production scraper HA. The goal is a public (o
 ## 1. What we are deploying
 
 
-| Piece                                                     | Lives in               | Host                                       | Role                                                           |
-| --------------------------------------------------------- | ---------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| Query API + Copilot (`src/api`)                           | repo root              | **Render** web service                     | Metrics, evidence, reports, `POST /copilot/query`              |
-| Postgres + **pgvector** `vector(1024)`                    | migrations `001`–`007` | **Render Postgres** (managed)              | Source of truth                                                |
-| Next.js App Router (`web/`)                               | `web/`                 | **Vercel**                                 | Product UI; browsers talk only to Vercel                       |
-| Pipeline CLI (`ingest` → `cluster` → `ngrams` → `report`) | repo root              | Laptop (recommended), or a Render **cron** | Writes the corpus. Not required for the API process to stay up |
+| Piece                                                     | Lives in               | Host                                         | Role                                                           |
+| --------------------------------------------------------- | ---------------------- | -------------------------------------------- | -------------------------------------------------------------- |
+| Query API + Copilot (`src/api`)                           | repo root              | **Railway** web service                      | Metrics, evidence, reports, `POST /copilot/query`              |
+| Postgres + **pgvector** `vector(1024)`                    | migrations `001`–`007` | **Railway pgvector** (not default Postgres)  | Source of truth                                                |
+| Next.js App Router (`web/`)                               | `web/`                 | **Vercel**                                   | Product UI; browsers talk only to Vercel                       |
+| Pipeline CLI (`ingest` → `cluster` → `ngrams` → `report`) | repo root              | Laptop (recommended), or a Railway **cron**  | Writes the corpus. Not required for the API process to stay up |
 
 
 The frontend already proxies every API call through a Next.js route:
 
 ```
 Browser  →  https://<vercel>/api/query/...
-         →  https://<api>.onrender.com/{metrics,evidence,copilot,...}
+         →  https://<api>.up.railway.app/{metrics,evidence,copilot,...}
 ```
 
-Implemented in `web/app/api/query/[...path]/route.ts`. The browser never needs the Render URL. Do **not** prefix `API_BASE_URL` or `API_SHARED_SECRET` with `NEXT_PUBLIC_`.
+Implemented in `web/app/api/query/[...path]/route.ts`. The browser never needs the Railway URL. Do **not** prefix `API_BASE_URL` or `API_SHARED_SECRET` with `NEXT_PUBLIC_`.
 
 ```
 Public sources
     → CLI pipeline (laptop or cron)
-    → Render Postgres (pgvector)
-    → Render FastAPI  (Query API + Copilot + Groq)
+    → Railway Postgres (pgvector)
+    → Railway FastAPI  (Query API + Copilot + Groq)
          ↑
     Vercel Next.js  (proxy + dashboard)
          ↑
@@ -47,33 +47,37 @@ These are not optional footnotes. They decide machine size, start command, and w
 
 ### 2.1 Auth and bind address
 
-`src/cli.py serve` and `Settings.require_api_secret_if_public()` refuse to bind anything other than localhost unless `API_SHARED_SECRET` is set. Render must bind `0.0.0.0` and `$PORT`.
+`src/api/serve.py` and `Settings.require_api_secret_if_public()` refuse to bind anything other than localhost unless `API_SHARED_SECRET` is set. Railway must bind `0.0.0.0` and `$PORT`.
 
-Prototype auth is header `X-API-Key` (or `Authorization: Bearer …`). `/health` and `/` are unauthenticated — use `/health` as the Render health check. `/health` returns **200** while the process is up (`store=pending` until Postgres attaches, then `{"status":"ok","store":"postgres"}`). Metrics stay 503 until the store is ready so Render does not restart the API mid-handshake.
+Prototype auth is header `X-API-Key` (or `Authorization: Bearer …`). `/health` and `/` are unauthenticated — use `/health` as the Railway health check. `/health` returns **200** while the process is up (`store=pending` until Postgres attaches, then `{"status":"ok","store":"postgres"}`). Metrics stay 503 until the store is ready so Railway does not mark the deploy failed mid-handshake.
 
 ### 2.2 Postgres fallback is a local-dev trap
 
-`src/db/connect.py` falls back to `data/local_store.pkl` if Postgres is not listening. On Render that file is **ephemeral** unless you mount a disk, and the dashboard would look empty after every restart.
+`src/db/connect.py` falls back to `data/local_store.pkl` if Postgres is not listening. On Railway that file is **ephemeral** unless you mount a volume, and the dashboard would look empty after every restart.
 
-Production `DATABASE_URL` must be reachable at process start. Prefer the **internal** Render URL (`fromDatabase.connectionString` in `render.yaml`), not the External Database URL. The laptop pipeline is the exception — it must use the **external** URL.
+Set `REQUIRE_POSTGRES=true` on the API. Production `DATABASE_URL` must be the **private** Railway URL (`*.railway.internal`). The laptop pipeline is the exception — it must use `DATABASE_PUBLIC_URL` (`*.proxy.rlwy.net` or `*.rlwy.net`) with `sslmode=require`.
+
+If a leftover laptop `DATABASE_URL=localhost` is present, `connect.py` ignores it on Railway and uses `DATABASE_PRIVATE_URL` / `DATABASE_PUBLIC_URL` / `PGHOST` instead.
 
 ### 2.3 pgvector is required
 
-`migrations/001_init.sql` runs `CREATE EXTENSION IF NOT EXISTS vector` and `chunks.embedding vector(1024)`. Render Postgres **includes pgvector**. Do not use a generic Docker Postgres image without the extension. After the database is up, `python -m src.cli migrate` (the API boot CMD) runs `CREATE EXTENSION vector`.
+`migrations/001_init.sql` runs `CREATE EXTENSION IF NOT EXISTS vector` and `chunks.embedding vector(1024)`.
+
+**Railway’s default Postgres plugin does not include pgvector.** Deploy the **pgvector** template in the same project (official `pgvector/pgvector` image). After the database is up, `python -m src.api --migrate` runs `CREATE EXTENSION vector` if it is not already there.
+
+Do not use a generic Postgres image without the extension.
 
 ### 2.4 BGE-M3 is local and heavy
 
 Embeddings never leave the machine (`BAAI/bge-m3`, dim **1024**). Weights are ~2 GB under `HF_HOME`. Copilot `search_chunks` loads Sentence-Transformers on first use (`src/api/copilot.py`). Dashboard metrics work without loading BGE; Copilot vector search does not.
 
-Budget **≥8 GB RAM** for the API service if Copilot retrieval should work. Render plan `**2c-8g`** (2 CPU / 8 GB). A 512 MB free instance will OOM on first Copilot retrieve (metrics-only still works; Copilot then uses tagged quotes / Groq tools only, with `embed_error` in tool JSON).
+Budget **≥8 GB RAM** for the API service if Copilot retrieval should work. A 512 MB replica will OOM on first Copilot retrieve (metrics-only still works; Copilot then uses tagged quotes / Groq tools only, with `embed_error` in tool JSON).
 
-Do not switch to OpenAI embeddings to “make Render cheaper.” That violates Architecture §5.1.
-
-Do **not** use Render’s **free** web plan: 512 MB, spins down after idle, and **cannot** attach a persistent disk.
+Do not switch to OpenAI embeddings to “make Railway cheaper.” That violates Architecture §5.1.
 
 ### 2.5 Ephemeral disk
 
-Render containers lose the filesystem on each deploy unless a **persistent disk** is attached. Persist:
+Railway containers lose the filesystem on each deploy unless a **volume** is attached. Persist:
 
 
 | Path            | Env              | Why                                            |
@@ -84,47 +88,49 @@ Render containers lose the filesystem on each deploy unless a **persistent disk*
 | `/data/locks`   | `LOCK_PATH`      | Pipeline overlap lock (`EC-IN-16`)             |
 
 
-Postgres data is on the **database**, not this disk.
+Postgres data lives on the **pgvector service volume**, not this API volume.
 
-A Render disk is attached to **one** service instance. Cron jobs and one-off shells do **not** see `/data`. To write report PDFs onto the volume, run `python -m src.cli report` from the **API service Shell** (Dashboard → service → Shell), not from a one-off job.
-
-Attaching a disk disables zero-downtime deploys (brief downtime on each deploy). That is expected.
+A Railway volume is attached to **one** service. Cron jobs do **not** see `/data`. To write report PDFs onto the volume, run `python -m src.cli report` from the **API service** (Railway CLI `railway run` against that service, or a one-off start command), not from a separate job unless it mounts the same volume.
 
 ### 2.6 Cloud IPs vs connectors
 
 Play Store / public Reddit / Nitter-style hosts often **403/429 from datacenter IPs**. The runbook says: pause the source, do not scrape around the block, do not impute volume.
 
-**Recommended split:** run ingest (and optionally the full pipeline) from a laptop against Render Postgres via the **External Database URL**. Keep the Render web service as a **read path** (API + Copilot). If you do run ingest on Render, expect Play Store `failed` / `unavailable` and treat that as honest, not a bug to bypass.
+**Recommended split:** run ingest (and optionally the full pipeline) from a laptop against Railway Postgres via **`DATABASE_PUBLIC_URL`**. Keep the Railway web service as a **read path** (API + Copilot). If you do run ingest on Railway, expect Play Store `failed` / `unavailable` and treat that as honest, not a bug to bypass.
 
 ### 2.7 Copilot latency
 
-`web/app/api/query/[...path]/route.ts` already sets `maxDuration = 120` and a 20 s upstream abort with retries; the client waits up to 60 s. Vercel Fluid compute allows this on Hobby (max 300 s). First Copilot turn after a cold BGE load can still be slow — that is expected. Keep the Render service on a paid plan so it does not spin down.
+`web/app/api/query/[...path]/route.ts` already sets `maxDuration = 120` and a 20 s upstream abort with retries; the client waits up to 60 s. Vercel Fluid compute allows this on Hobby (max 300 s). First Copilot turn after a cold BGE load can still be slow — that is expected. Keep the Railway API replica on so it does not sleep between Copilot turns.
 
 ---
 
-## 3. Target Render workspace
+## 3. Target Railway project
 
-One Render Blueprint (`render.yaml`), two (or three) resources:
+One Railway **project** (same environment), two services, plus Vercel for the UI:
 
 
-| Service                         | Type                                               | Public?                                                       |
-| ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
-| `discovery-db`                  | Render Postgres 16 + pgvector                      | No (internal URL for `api`). External URL for laptop pipeline |
-| `discovery-api`                 | GitHub → this repo, **root directory = repo root** | Yes (`*.onrender.com`)                                        |
-| disk on `api`                   | Persistent disk mounted at `/data`                 | —                                                             |
-| `discovery-pipeline` (optional) | Cron, same Docker image                            | No                                                            |
+| Service              | Type                                                    | Public?                                                          |
+| -------------------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
+| `pgvector` (or similar name) | Railway **pgvector** template, Postgres 16+     | No (private URL for `api`). Public TCP proxy for laptop pipeline |
+| `discovery-api`      | GitHub → this repo, **root directory = repo root**      | Yes (`*.up.railway.app`)                                         |
+| volume on `api`      | Mounted at `/data`                                      | —                                                                |
+| `discovery-pipeline` (optional) | Railway cron, same image / start command     | No                                                               |
 
 
 Do **not** point the Vercel project at the repo root. Vercel’s root directory is `web/`.
 
-Region: pick **one** Render region for both Postgres and the API (private networking is same-region only). Closest to India is **Singapore**. Vercel: `sin1`. Region cannot be changed after the Blueprint first creates the resources.
+Do **not** add a second Railway service for `web/` — the dashboard stays on Vercel.
+
+Region: pick **one** Railway region for both pgvector and the API (private networking is same-project / same-environment). Closest to India is **Southeast Asia** (`southeast-asia`) when available. Vercel: `sin1`.
+
+`render.yaml` in this repo is a leftover from an earlier host. This plan does **not** use it.
 
 ---
 
 ## 4. Prerequisites
 
-- GitHub repo with this project (Render and Vercel both deploy from git). `.env` and `script.md` stay gitignored.
-- Render account, Vercel account, Groq key (`GROQ_API_KEY`).
+- GitHub repo with this project (Railway and Vercel both deploy from git). `.env` and `script.md` stay gitignored.
+- Railway account, Vercel account, Groq key (`GROQ_API_KEY`).
 - A long random `API_SHARED_SECRET` and `AUTHOR_HMAC_SECRET`. Generate once; **do not rotate HMAC after real ingest** or `author_hash` values diverge.
 - Python 3.11+ locally if you bootstrap the corpus from the laptop.
 - Optional: `YOUTUBE_API_KEY`, Reddit PRAW pair, `X_BEARER_TOKEN`. Empty keys already have public fallbacks; Instagram / Facebook / Quora stay unavailable.
@@ -133,132 +139,97 @@ Region: pick **one** Render region for both Postgres and the API (private networ
 
 ## 5. Files in the repo
 
-These are in git. Render uses native Python via `render.yaml` (`python -m src.api`). Vercel uses `web/` (including `web/vercel.json`). Do not bind `127.0.0.1:8000` on Render.
+These are in git. Railway builds the **repo root** (`Dockerfile` or Nixpacks + `requirements-api.txt`). Vercel uses `web/` (including `web/vercel.json`). Do not bind `127.0.0.1:8000` on Railway.
 
-### 5.1 `render.yaml` (repo root)
+### 5.1 Railway build and start
 
-Blueprint: native Python web service + managed Postgres. Secrets use `sync: false` so you paste them in the Render Dashboard — they never go in git.
+Prefer the repo-root **Dockerfile** (Railway uses it automatically when present):
 
-```yaml
-databases:
-  - name: discovery-db
-    plan: 0.5c-1g
-    postgresMajorVersion: "16"
-    databaseName: discovery
-    user: discovery
-    region: singapore
+- Install: `pip install -r requirements-api.txt && pip install --no-deps -e .`
+- Command: `python -m src.api --migrate --host 0.0.0.0`
 
-services:
-  - type: web
-    name: discovery-api
-    runtime: python
-    plan: 2c-8g
-    region: singapore
-    healthCheckPath: /health
-    buildCommand: pip install -r requirements-api.txt && pip install --no-deps -e .
-    startCommand: python -m src.api --migrate --host 0.0.0.0
-    disk:
-      name: api-data
-      mountPath: /data
-      sizeGB: 10
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: discovery-db
-          property: connectionString
-      - key: API_SHARED_SECRET
-        sync: false
-      - key: AUTHOR_HMAC_SECRET
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
-```
+Do **not** `pip install -e .` with default extras on Railway — that pulls Sentence-Transformers / torch and a 15–20 minute build. `requirements-api.txt` is the Query API only (no torch). Metrics and Copilot tools work; vector retrieve loads BGE only if those weights exist under `HF_HOME`.
 
-Set remaining frozen constants and path env in the same file (already in git). Render injects `PORT`.
+If you switch the service to **Nixpacks / Railpack** instead of Docker, set:
 
-Apply with **Dashboard → New → Blueprint** and the GitHub repo, or `render blueprint apply`. First apply prompts for the three secrets.
+| Setting        | Value                                                                  |
+| -------------- | ---------------------------------------------------------------------- |
+| Build command  | `pip install -r requirements-api.txt && pip install --no-deps -e .`    |
+| Start command  | `python -m src.api --migrate --host 0.0.0.0`                           |
+| Python version | `3.11.11` (repo `.python-version`)                                     |
 
-### 5.2 API image (`Dockerfile` + `requirements-api.txt`)
+`python -m src.api` reads Railway’s `PORT`, listens immediately, then attaches Postgres and applies migrations (`schema_migrations` is idempotent).
 
-The live Render service is **native Python**, not Docker. The Dockerfile is a fallback (same torch-free API install). Do **not** `pip install -e .` with default extras on Render — that pulls Sentence-Transformers / torch and a 15–20 minute build that never finishes before the next “fix”.
-
-```dockerfile
-FROM python:3.11-slim-bookworm
-# nsswitch: hosts: files dns  (Debian otherwise skips DNS for dpg- names)
-# pip install -r requirements-api.txt && pip install --no-deps -e .
-CMD ["python", "-m", "src.api", "--migrate", "--host", "0.0.0.0"]
-```
-
-`python -m src.api` reads Render’s `PORT`, listens immediately, then attaches Postgres and applies migrations (`schema_migrations` is idempotent).
-
-If migrate-on-boot feels too tight, run it once from the API **Shell** and drop `--migrate` from the start command:
+If migrate-on-boot feels too tight, run it once and drop `--migrate`:
 
 ```text
 python -m src.cli migrate
 ```
 
-**Do not** bind `127.0.0.1` or hard-code port 8000 on Render. Health checks will fail.
+**Do not** bind `127.0.0.1` or hard-code port 8000 on Railway. Health checks will fail.
 
-### 5.3 `.dockerignore` (repo root)
+### 5.2 `.dockerignore` (repo root)
 
-```
-.venv
-web/node_modules
-web/.next
-data
-evals/runs
-.git
-.env
-.env.local
-script.md
-```
+Keeps the API image small. `web/` is excluded so Railway does not copy the Next.js app into the API image.
 
-### 5.4 `web/vercel.json`
+### 5.3 `web/vercel.json`
 
 Framework preset **Next.js**, Vercel **Root Directory =** `web`. `web/package.json` already has `build` / `start`. The proxy route is already `force-dynamic` with `maxDuration = 120`.
 
 ---
 
-## 6. Render — Postgres (pgvector)
+## 6. Railway — Postgres (pgvector)
 
-1. Created by the Blueprint (`discovery-db`), or **Dashboard → New → Postgres**.
-2. PostgreSQL **16** (or 17). Same region as `discovery-api`.
-3. Wait until status is **Available**. Connect menu:
-  - **Internal Database URL** — for `api` (`DATABASE_URL` via `fromDatabase`)
-  - **External Database URL** — laptop pipeline / `psql` only
-4. Append `?sslmode=require` to the external URL if the client does not add TLS itself.
-5. Do **not** create tables by hand. The app migrations own the schema, including `CREATE EXTENSION vector`.
+1. In the Railway project: **New → Template** (or **Database**) and pick **Postgres with pgvector**, not the plain Postgres plugin.
+2. PostgreSQL **16+** with the `vector` extension. Same environment as `discovery-api`.
+3. Attach a **volume** to the database service. For PG18 templates, mount at `/var/lib/postgresql` (not the old `/var/lib/postgresql/data` path).
+4. Wait until the database is running. Variables tab:
+   - **Private** `DATABASE_URL` — host like `postgres.railway.internal` — for the API
+   - **Public** `DATABASE_PUBLIC_URL` — host like `*.proxy.rlwy.net` — laptop pipeline / `psql` only
+5. Append `?sslmode=require` to the public URL if the client does not add TLS itself. Private `.railway.internal` connections use `sslmode=disable` (`src/db/connect.py`).
+6. Do **not** create tables by hand. The app migrations own the schema, including `CREATE EXTENSION vector`.
 
-Sizing: start with `0.5c-1g` and 5–10 GB disk. 1024-d vectors plus raw/normalized text grow with corpus size. Free Render Postgres expires after 30 days — do not use it for this corpus.
+On the **API service**, reference the database instead of pasting a secret:
+
+```text
+DATABASE_URL=${{pgvector.DATABASE_URL}}
+```
+
+Use the **private** variable from the pgvector service (often `DATABASE_URL` or `DATABASE_PRIVATE_URL`). Do not paste the public `rlwy.net` URL onto the API.
+
+Sizing: start with 1 GB RAM / 5–10 GB volume. 1024-d vectors plus raw/normalized text grow with corpus size.
 
 ---
 
-## 7. Render — API service
+## 7. Railway — API service
 
-1. Blueprint creates `discovery-api` from this repo. Root directory = repository root (not `web/`).
-2. Runtime: **Python** (`3.11.11`). Build/start from §5.1. If the existing service is still Docker, change **Settings → Build & Deploy → Runtime** to Python (or Apply Blueprint), then deploy. Docker cannot resolve Render’s private `dpg-` hostname, which is why `/health` stayed `store=pending`.
-3. Public URL is `https://discovery-api.onrender.com` (or the name you chose). Copy this origin into Vercel `API_BASE_URL`.
-4. Disk at `/data` (Blueprint). Plan `**2c-8g**` for Copilot + BGE; `**1c-2g**` is acceptable for a metrics-only demo (expect Copilot retrieve to skip vectors).
-5. Variables (see §10). Minimum to boot:
+1. **New → GitHub Repo** → this repo. Root directory = repository root (not `web/`).
+2. Builder: **Dockerfile** at repo root (default if the file exists). Watchtower / start command can stay empty so the image `CMD` runs.
+3. **Settings → Networking → Generate domain.** Public URL is `https://<service>.up.railway.app`. Copy this origin into Vercel `API_BASE_URL`.
+4. **Settings → Health check path:** `/health`.
+5. **Volume** at `/data` (10 GB is enough for BGE + reports). Plan **≥8 GB RAM** for Copilot + BGE; **2 GB** is acceptable for a metrics-only demo (expect Copilot retrieve to skip vectors).
+6. Variables (see §10). Minimum to boot:
 
-  | Name                 | Value                                                               |
-  | -------------------- | ------------------------------------------------------------------- |
-  | `DATABASE_URL`       | Internal connection string (Blueprint `fromDatabase`)               |
-  | `API_HOST`           | `0.0.0.0` (image default)                                           |
-  | `REQUIRE_POSTGRES`   | `true` (image default)                                              |
-  | `API_SHARED_SECRET`  | long random string (paste on first Blueprint apply; copy to Vercel) |
-  | `AUTHOR_HMAC_SECRET` | long random string (stable)                                         |
-  | `GROQ_API_KEY`       | Groq key                                                            |
-  | `HF_HOME`            | `/data/models`                                                      |
-  | `RAW_STORE_PATH`     | `/data/raw`                                                         |
-  | `REPORTS_PATH`       | `/data/reports`                                                     |
-  | `LOCK_PATH`          | `/data/locks`                                                       |
-  | `LOCAL_STORE_PATH`   | `/data/local_store.pkl` (must not be the live store)                |
 
-6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `pending`, the process is up and still attaching Postgres (liveness is 200). If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. When the short `dpg-` name resolves to a public IP, the API uses `dpg-….singapore-postgres.render.com` with `sslmode=require` (plain TCP is rejected with `SSL/TLS required`). If `store` stays `pending`, confirm API + database share a region (Singapore) and the service runtime is Python, not Docker.
-7. After the first successful deploy, confirm OpenAPI at `https://<api>.onrender.com/docs` (optional; still behind CORS).
+| Name                 | Value                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| `DATABASE_URL`       | `${{pgvector.DATABASE_URL}}` (private, `.railway.internal`)           |
+| `API_HOST`           | `0.0.0.0`                                                             |
+| `REQUIRE_POSTGRES`   | `true`                                                                |
+| `API_SHARED_SECRET`  | long random string (same value on Vercel)                             |
+| `AUTHOR_HMAC_SECRET` | long random string (stable)                                           |
+| `GROQ_API_KEY`       | Groq key                                                              |
+| `HF_HOME`            | `/data/models`                                                        |
+| `RAW_STORE_PATH`     | `/data/raw`                                                           |
+| `REPORTS_PATH`       | `/data/reports`                                                       |
+| `LOCK_PATH`          | `/data/locks`                                                         |
+| `LOCAL_STORE_PATH`   | `/data/local_store.pkl` (must not be the live store)                  |
 
-The API install is `requirements-api.txt` (no torch). Builds should finish in a few minutes. Run ingest/embed from the laptop against the External Database URL.
+
+7. Expected `/health` JSON: `{"status":"ok","store":"postgres"}`. If `store` is `pending`, the process is up and still attaching Postgres (liveness is 200). If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. If logs show `*.railway.internal` DNS failure, set `DATABASE_URL` to the private reference from the pgvector service (same project + region). If the API was given the public `rlwy.net` URL, `connect.py` still accepts it with `sslmode=require`.
+8. After the first successful deploy, confirm OpenAPI at `https://<api>.up.railway.app/docs` (optional; still behind CORS).
+
+The API install is `requirements-api.txt` (no torch). Run ingest/embed from the laptop against `DATABASE_PUBLIC_URL`.
 
 ---
 
@@ -266,15 +237,15 @@ The API install is `requirements-api.txt` (no torch). Builds should finish in a 
 
 An empty migrated database serves Overview with zeros / empty themes. Populate it **before** calling the deploy “done.”
 
-### Option A — Laptop writes to Render Postgres (recommended)
+### Option A — Laptop writes to Railway Postgres (recommended)
 
 On the machine that can reach Play Store / Reddit:
 
 ```powershell
-# Point local .env at the EXTERNAL Render URL only for this session
-$env:DATABASE_URL = "postgresql://discovery:...@dpg-xxxxx-a.singapore-postgres.render.com/discovery?sslmode=require"
-$env:GROQ_API_KEY = "gsk_..."   # same as Render
-$env:AUTHOR_HMAC_SECRET = "<same as Render>"
+# Point local .env at the PUBLIC Railway URL only for this session
+$env:DATABASE_URL = "postgresql://postgres:...@xxxxx.proxy.rlwy.net:xxxxx/railway?sslmode=require"
+$env:GROQ_API_KEY = "gsk_..."   # same as Railway
+$env:AUTHOR_HMAC_SECRET = "<same as Railway>"
 
 python -m src.cli migrate
 python -m src.cli pipeline --sources all --max-items 50 --limit 50 --cluster
@@ -285,25 +256,25 @@ python -m src.cli source status
 
 HMAC and Groq model ids must match the API service. Frozen constants stay as in `.env.example` (`C_MAX=200`, `S_MAX=4`, `GROQ_MODEL=openai/gpt-oss-120b`, `BGE_MODEL_ID=BAAI/bge-m3`).
 
-Copy generated PDFs is unnecessary if `report` ran on the API disk. If you generated reports locally, either re-run `python -m src.cli report` in the **API Shell** so files land on `/data/reports`, or accept JSON report metadata without a downloadable PDF.
+If you generated reports locally, re-run `python -m src.cli report` on the API service so files land on `/data/reports`, or accept JSON report metadata without a downloadable PDF.
 
-### Option B — Render cron
+### Option B — Railway cron
 
-Same Docker image as `api`, cron e.g. daily 02:00 UTC:
+Same image as `api`, schedule e.g. daily 02:00 UTC:
 
 ```text
 python -m src.cli pipeline --sources all --cluster && python -m src.cli ngrams && python -m src.cli report
 ```
 
-The cron **does not** share `/data` with `api`. Overlapping runs take `LOCK_PATH/pipeline.lock` only if that path exists on the cron instance (it will not persist). Pick **one** scheduler (Render cron **or** laptop Task Scheduler **or** n8n) — not two (`EC-OP-06`).
+The cron **does not** share `/data` with `api` unless you attach the same volume. Pick **one** scheduler (Railway cron **or** laptop Task Scheduler **or** n8n) — not two (`EC-OP-06`).
 
-Existing wrappers: `ops/cron/discovery.crontab`, `ops/windows/Register-PipelineTask.ps1`, `ops/n8n/discovery-pipeline.json`. Point their `DATABASE_URL` at the Render **external** URL if you keep them.
+Existing wrappers: `ops/cron/discovery.crontab`, `ops/windows/Register-PipelineTask.ps1`, `ops/n8n/discovery-pipeline.json`. Point their `DATABASE_URL` at Railway **`DATABASE_PUBLIC_URL`** if you keep them.
 
 ### Option C — Dump/restore an existing local DB
 
 ```powershell
 docker exec <local-pg> pg_dump -U discovery -Fc discovery > discovery.dump
-# restore into Render using the External Database URL
+# restore into Railway using DATABASE_PUBLIC_URL
 pg_restore --no-owner --no-acl -d $env:DATABASE_URL discovery.dump
 ```
 
@@ -318,16 +289,16 @@ Only valid if the local DB already used `vector(1024)` BGE-M3 (no dim mix).
 3. Framework preset: Next.js. Build `npm run build`, output default.
 4. Environment variables (Production + Preview):
 
-  | Name                | Value                                            | Exposed to browser?        |
-  | ------------------- | ------------------------------------------------ | -------------------------- |
-  | `API_BASE_URL`      | `https://<api>.onrender.com` (no trailing slash) | **No** — server proxy only |
-  | `API_SHARED_SECRET` | identical to Render                              | **No**                     |
+  | Name                | Value                                               | Exposed to browser?        |
+  | ------------------- | --------------------------------------------------- | -------------------------- |
+  | `API_BASE_URL`      | `https://<service>.up.railway.app` (no trailing slash) | **No** — server proxy only |
+  | `API_SHARED_SECRET` | identical to Railway                                | **No**                     |
 
-   The proxy injects `X-API-Key` from `API_SHARED_SECRET` when the browser does not send one (`web/app/api/query/[...path]/route.ts`). With both set, users should **not** see the AuthGate. If you omit the secret on Vercel but set it on Render, the unlock screen appears and the value is stored in `sessionStorage` only.
-5. Region: pick the Vercel region closest to the Render region (Singapore → `sin1`, Oregon → `sfo1`) so Copilot’s two hops stay short.
+   The proxy injects `X-API-Key` from `API_SHARED_SECRET` when the browser does not send one (`web/app/api/query/[...path]/route.ts`). With both set, users should **not** see the AuthGate. If you omit the secret on Vercel but set it on Railway, the unlock screen appears and the value is stored in `sessionStorage` only.
+5. Region: pick the Vercel region closest to the Railway region (Southeast Asia → `sin1`, US West → `sfo1`) so Copilot’s two hops stay short.
 6. Deploy. Open `https://<project>.vercel.app`. Routes to check: `/overview`, `/themes`, `/evidence`, `/copilot`.
 
-Preview deployments: either allow `https://*.vercel.app` in Render `API_CORS_ORIGINS`, or rely on the server-side proxy (CORS does not apply to the proxy hop). CORS only matters for **browser → Render** (OpenAPI, curl from a webpage). The product UI does not do that. The API already allows `https://*.vercel.app` via origin regex.
+Preview deployments: either allow `https://*.vercel.app` in Railway `API_CORS_ORIGINS`, or rely on the server-side proxy (CORS does not apply to the proxy hop). CORS only matters for **browser → Railway** (OpenAPI, curl from a webpage). The product UI does not do that. The API already allows `https://*.vercel.app` via origin regex.
 
 ---
 
@@ -335,32 +306,34 @@ Preview deployments: either allow `https://*.vercel.app` in Render `API_CORS_ORI
 
 Copy from `.env.example`. Secrets stay in the host dashboards, never in git.
 
-### 10.1 Render `discovery-api` — required
+### 10.1 Railway `discovery-api` — required
 
 
-| Variable             | Production notes                                                                                        |
-| -------------------- | ------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`       | **Internal** URL only (`dpg-…`, no `.render.com`). Blueprint also sets `RENDER_DATABASE_URL` + `PGHOST` |
-| `GROQ_API_KEY`       | Generation only. `GROQ_BASE_URL=https://api.groq.com/openai/v1`                                         |
-| `GROQ_MODEL`         | Frozen `openai/gpt-oss-120b`                                                                            |
-| `GROQ_MODEL_LIGHT`   | Frozen `openai/gpt-oss-20b`                                                                             |
-| `BGE_MODEL_ID`       | `BAAI/bge-m3`                                                                                           |
-| `EMBEDDING_DIM`      | `1024`                                                                                                  |
-| `HF_HOME`            | `/data/models`                                                                                          |
-| `AUTHOR_HMAC_SECRET` | Required for real ingest; keep stable                                                                   |
-| `API_HOST`           | `0.0.0.0` (image default)                                                                               |
-| `REQUIRE_POSTGRES`   | `true` (image default — do not turn off)                                                                |
-| `API_SHARED_SECRET`  | Required (public bind)                                                                                  |
-| `API_CORS_ORIGINS`   | `https://<vercel-prod>,http://localhost:3000`                                                           |
-| `RAW_STORE_PATH`     | `/data/raw`                                                                                             |
-| `REPORTS_PATH`       | `/data/reports`                                                                                         |
-| `LOCK_PATH`          | `/data/locks`                                                                                           |
-| `C_MAX` / `S_MAX`    | `200` / `4`                                                                                             |
+| Variable             | Production notes                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`       | **Private** URL only (`*.railway.internal`). Prefer `${{pgvector.DATABASE_URL}}`                         |
+| `GROQ_API_KEY`       | Generation only. `GROQ_BASE_URL=https://api.groq.com/openai/v1`                                          |
+| `GROQ_MODEL`         | Frozen `openai/gpt-oss-120b`                                                                             |
+| `GROQ_MODEL_LIGHT`   | Frozen `openai/gpt-oss-20b`                                                                              |
+| `BGE_MODEL_ID`       | `BAAI/bge-m3`                                                                                            |
+| `EMBEDDING_DIM`      | `1024`                                                                                                   |
+| `HF_HOME`            | `/data/models`                                                                                           |
+| `AUTHOR_HMAC_SECRET` | Required for real ingest; keep stable                                                                    |
+| `API_HOST`           | `0.0.0.0`                                                                                                |
+| `REQUIRE_POSTGRES`   | `true` (do not turn off)                                                                                 |
+| `API_SHARED_SECRET`  | Required (public bind)                                                                                   |
+| `API_CORS_ORIGINS`   | `https://<vercel-prod>,http://localhost:3000`                                                            |
+| `RAW_STORE_PATH`     | `/data/raw`                                                                                              |
+| `REPORTS_PATH`       | `/data/reports`                                                                                          |
+| `LOCK_PATH`          | `/data/locks`                                                                                            |
+| `C_MAX` / `S_MAX`    | `200` / `4`                                                                                              |
 
 
-Render sets `PORT`. Uvicorn must use `${PORT}`. You do not need `API_PORT` if the start command omits `--port`.
+Railway sets `PORT`. Uvicorn must use `${PORT}`. You do not need `API_PORT` if the start command omits `--port`.
 
-### 10.2 Render `discovery-api` — connectors (optional)
+`connect.py` also reads `DATABASE_PRIVATE_URL`, `DATABASE_PUBLIC_URL`, `PGHOST` / `PGUSER` / `PGPASSWORD` / `PGDATABASE` if `DATABASE_URL` is missing or still `localhost`.
+
+### 10.2 Railway `discovery-api` — connectors (optional)
 
 Same names as `.env.example`: `PLAY_STORE_*`, `APP_STORE_*`, `REDDIT_*`, `YOUTUBE_*`, `X_*`. Disable with `PLAY_STORE_ENABLED=false` (etc.) rather than inventing zeros.
 
@@ -369,10 +342,10 @@ If the API replica will **not** ingest, you can leave connectors enabled in env;
 ### 10.3 Vercel `web` — required
 
 
-| Variable            | Production notes           |
-| ------------------- | -------------------------- |
-| `API_BASE_URL`      | Render public HTTPS origin |
-| `API_SHARED_SECRET` | Same string as Render      |
+| Variable            | Production notes                    |
+| ------------------- | ----------------------------------- |
+| `API_BASE_URL`      | Railway public HTTPS origin         |
+| `API_SHARED_SECRET` | Same string as Railway              |
 
 
 Nothing else from the Python `.env` belongs on Vercel.
@@ -384,16 +357,20 @@ Nothing else from the Python `.env` belongs on Vercel.
 Do these in order. Do not attach Vercel until `/health` reports `store=postgres`.
 
 - [ ] Repo on GitHub; `.env` not committed
-- [ ] Deploy the branch that contains `render.yaml` / `requirements-api.txt` / `web/vercel.json`
-- [ ] Render Blueprint apply (or Dashboard: Postgres 16 + Docker web service)
-- [ ] Paste `API_SHARED_SECRET`, `AUTHOR_HMAC_SECRET`, `GROQ_API_KEY` when prompted
-- [ ] Confirm disk at `/data` and plan `2c-8g` (or `1c-2g` metrics-only)
+- [ ] Deploy the branch that contains `Dockerfile` / `requirements-api.txt` / `web/vercel.json`
+- [ ] Railway project, region **southeast-asia** (or one region for both services)
+- [ ] Add **pgvector** template (not default Postgres); wait until it is running
+- [ ] Add GitHub service `discovery-api` from repo root; Dockerfile build
+- [ ] Set `DATABASE_URL=${{pgvector.DATABASE_URL}}` (private)
+- [ ] Paste `API_SHARED_SECRET`, `AUTHOR_HMAC_SECRET`, `GROQ_API_KEY`
+- [ ] Volume at `/data`; replica RAM ≥8 GB (or 2 GB metrics-only)
+- [ ] Generate public domain; health check `/health`
 - [ ] Deploy; `/health` → `postgres`
-- [ ] `python -m src.cli migrate` (boot CMD or API Shell)
+- [ ] `python -m src.cli migrate` (boot `--migrate` or `railway run`)
 - [ ] Bootstrap corpus (laptop pipeline or cron) (§8)
-- [ ] Confirm `GET https://<api>.onrender.com/metrics/overview` with `X-API-Key` returns themes/counts
+- [ ] Confirm `GET https://<api>.up.railway.app/metrics/overview` with `X-API-Key` returns themes/counts
 - [ ] Vercel project, root `web`, env `API_BASE_URL` + `API_SHARED_SECRET`
-- [ ] Set Render `API_CORS_ORIGINS` to the Vercel URL
+- [ ] Set Railway `API_CORS_ORIGINS` to the Vercel URL
 - [ ] Browser: Overview SoV matches a curl to the API; Copilot citations open the evidence drawer
 - [ ] `python -m src.cli source status` — unavailable sources listed, not imputed
 - [ ] Optional: one cron for pipeline; disable local Task Scheduler if cron is on
@@ -404,10 +381,10 @@ Do these in order. Do not attach Vercel until `/health` reports `store=postgres`
 
 ```powershell
 # API (expect store=postgres)
-curl https://<api>.onrender.com/health
+curl https://<api>.up.railway.app/health
 
 # Authenticated overview
-curl -H "X-API-Key: <secret>" https://<api>.onrender.com/metrics/overview
+curl -H "X-API-Key: <secret>" https://<api>.up.railway.app/metrics/overview
 
 # Frontend proxy (from a logged-out browser, or)
 curl https://<vercel>/api/query/health
@@ -427,13 +404,13 @@ In the UI:
 ## 13. Resource and cost sketch
 
 
-| Resource                       | Why it exists                              | Ballpark                           |
-| ------------------------------ | ------------------------------------------ | ---------------------------------- |
-| Render Postgres `0.5c-1g`      | Persistent SQL + vectors                   | Small always-on Postgres           |
-| Render `discovery-api` `2c-8g` | FastAPI + optional BGE                     | Dominant compute cost              |
-| Render disk ~10 GB             | Weights + reports + raw                    | Cheap vs RAM                       |
-| Vercel Hobby/Pro               | Next.js + 120 s proxy                      | UI + Copilot hop                   |
-| Groq TPM                       | Extract, labels, Copilot, report narrative | Same as local; `GROQ_MAX_TPM=8000` |
+| Resource                         | Why it exists                              | Ballpark                           |
+| -------------------------------- | ------------------------------------------ | ---------------------------------- |
+| Railway pgvector + volume        | Persistent SQL + vectors                   | Always-on Postgres                 |
+| Railway `discovery-api` ≥8 GB    | FastAPI + optional BGE                     | Dominant compute cost              |
+| Railway volume ~10 GB on API     | Weights + reports + raw                    | Cheap vs RAM                       |
+| Vercel Hobby/Pro                 | Next.js + 120 s proxy                      | UI + Copilot hop                   |
+| Groq TPM                         | Extract, labels, Copilot, report narrative | Same as local; `GROQ_MAX_TPM=8000` |
 
 
 BGE is not billed; it is RAM + disk. Groq 429: raise `GROQ_MIN_INTERVAL_SECONDS`, lower `--limit`. Do not point `GROQ_BASE_URL` at OpenAI ([Runbook.md](./Runbook.md)).
@@ -444,33 +421,34 @@ BGE is not billed; it is RAM + disk. Groq 429: raise `GROQ_MIN_INTERVAL_SECONDS`
 
 - Shared secret is prototype auth, not SSO. Anyone with the Vercel URL **and** a Vercel-injected secret can read the corpus. Treat the Vercel URL as internal unless you add real auth later.
 - `API_SHARED_SECRET` on Vercel is server-only. Never `NEXT_PUBLIC_API_SHARED_SECRET`.
-- Evidence CSV is scrubbed; `RAW_STORE_PATH` may still have pre-scrub fields — disk access = operator-only (`EC-SEC-06`).
-- Render public API (`*.onrender.com`) is reachable from the internet. The secret is the gate. Rotate it in **both** dashboards together.
+- Evidence CSV is scrubbed; `RAW_STORE_PATH` may still have pre-scrub fields — volume access = operator-only (`EC-SEC-06`).
+- Railway public API (`*.up.railway.app`) is reachable from the internet. The secret is the gate. Rotate it in **both** dashboards together.
 - Do not log `GROQ_API_KEY` or the shared secret. Do not paste `.env` into Vercel “plain text in build logs.”
-- Laptop `DATABASE_URL` is the **external** Postgres URL. Do not commit it. Restrict the database IP allow list if you do not need ingest from arbitrary networks.
+- Laptop `DATABASE_URL` is the **public** Postgres URL (`DATABASE_PUBLIC_URL`). Do not commit it. Disable the TCP proxy if you do not need ingest from outside Railway.
 
 ---
 
 ## 15. Failure modes (deploy-specific)
 
 
-| Symptom                                                   | Likely cause                                                      | Fix                                                                 |
-| --------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Render deploy healthy, UI empty, `/health` `store=memory` | `DATABASE_URL` wrong or pg not up at boot                         | Internal URL from Blueprint; restart after Postgres is Available    |
-| `/health` stuck `store=pending`                           | Internal host unreachable (wrong region) or TLS                   | Same region (Singapore); public hostname is the DNS fallback        |
-| `failed to resolve host 'dpg-…'`                          | Short host is private DNS only; not in public DNS                 | Code retries `dpg-….{region}-postgres.render.com`; keep same region |
-| `SSL connection has been closed unexpectedly`             | TLS/channel-binding on the public Postgres hostname               | `sslmode=require` + `channel_binding=disable`; same-region services |
-| `CREATE EXTENSION vector` fails                           | Not Render Postgres, or too-old image                             | Use managed Render Postgres 16+                                     |
-| Health check never passes                                 | Bind `127.0.0.1` or port 8000 instead of `$PORT`                  | `python -m src.api` in §5.2                                         |
-| `API_SHARED_SECRET is required when binding…`             | Used `src.cli serve` on `0.0.0.0` without secret                  | Set secret                                                          |
-| Vercel 502 `Query API unreachable`                        | `API_BASE_URL` trailing path, `http` vs `https`, or API asleep    | Origin only, HTTPS, `*.onrender.com` (not the Postgres host)        |
-| Vercel 401 AuthGate                                       | Secret on Render only                                             | Set the same secret on Vercel, or type it in the gate               |
-| Copilot 504                                               | Render cold start + BGE load + Groq > proxy budget                | Paid plan (no spin-down); 8 GB RAM; retry                           |
-| OOMKilled on first Copilot question                       | BGE load on a small replica                                       | Scale to `2c-8g` or accept retrieve skip                            |
-| Report PDF 404                                            | `REPORTS_PATH` not on the API disk / report ran on laptop or cron | Re-run `report` in the API Shell                                    |
-| Play Store ingest `failed` on Render                      | Datacenter 403                                                    | Run ingest from laptop; mark source unavailable                     |
-| Themes look like a different corpus                       | Laptop pickle store vs Postgres                                   | Confirm both use the same Render `DATABASE_URL`                     |
-| `API_BASE_URL` error about `dpg-` / `postgres.render.com` | Pasted the database URL into Vercel                               | Use the **web service** `https://<api>.onrender.com`                |
+| Symptom                                                        | Likely cause                                                         | Fix                                                                 |
+| -------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Railway deploy healthy, UI empty, `/health` `store=memory`     | `DATABASE_URL` wrong or pg not up at boot                            | Private `${{pgvector.DATABASE_URL}}`; restart after DB is running   |
+| `/health` stuck `store=pending`                                | Private host unreachable or public URL without TLS                   | Same project; `.railway.internal` internally, `sslmode=require` on `rlwy.net` |
+| `failed to resolve host '…railway.internal'`                   | API and DB not in the same Railway environment / project             | Recreate both in one project; use the variable reference            |
+| `SSL/TLS required` on `*.rlwy.net`                             | Public proxy requires TLS                                            | `sslmode=require` (code already adds this for `.rlwy.net`)          |
+| `CREATE EXTENSION vector` fails                                | Used default Railway Postgres, not the pgvector template             | Deploy the pgvector template; migrate again                         |
+| Health check never passes                                      | Bind `127.0.0.1` or port 8000 instead of `$PORT`                     | `python -m src.api` in §5.1                                         |
+| `API_SHARED_SECRET is required when binding…`                  | Bound `0.0.0.0` without secret and without platform `PORT`           | Set secret                                                          |
+| Vercel 502 `Query API unreachable`                             | `API_BASE_URL` trailing path, `http` vs `https`, or API asleep       | Origin only, HTTPS, `*.up.railway.app` (not the Postgres host)      |
+| Vercel 401 AuthGate                                            | Secret on Railway only                                               | Set the same secret on Vercel, or type it in the gate               |
+| Copilot 504                                                    | Cold start + BGE load + Groq > proxy budget                          | Keep replica awake; 8 GB RAM; retry                                 |
+| OOMKilled on first Copilot question                            | BGE load on a small replica                                          | Scale RAM to ≥8 GB or accept retrieve skip                          |
+| Report PDF 404                                                 | `REPORTS_PATH` not on the API volume / report ran on laptop or cron  | Re-run `report` on the API service                                  |
+| Play Store ingest `failed` on Railway                          | Datacenter 403                                                       | Run ingest from laptop; mark source unavailable                     |
+| Themes look like a different corpus                            | Laptop pickle store vs Postgres                                      | Confirm both use the same Railway database                          |
+| `API_BASE_URL` error about `railway.internal` / `rlwy.net`     | Pasted the database URL into Vercel                                  | Use the **web service** `https://<api>.up.railway.app`              |
+| Build installs torch / takes 20 minutes                        | `pip install -e .` without `--no-deps`                               | Use `requirements-api.txt` then `pip install --no-deps -e .`        |
 
 
 Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./Runbook.md).
@@ -480,7 +458,7 @@ Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./
 ## 16. Rollback
 
 - **Vercel:** Deployments → previous Production. Instant.
-- **Render `discovery-api`:** Deploys → Redeploy previous image. Disk `/data` is unchanged.
+- **Railway `discovery-api`:** Deployments → Redeploy previous. Volume `/data` is unchanged.
 - **Migrations:** forward-only (`schema_migrations`). There is no down migration. Restore a `pg_dump` taken before `migrate` if you must unwind SQL.
 - **Frontend/backend contract:** keep API and `web/` on the same git SHA when possible. The UI must not re-aggregate if an old frontend hits a new API, but missing fields can blank a view.
 
@@ -491,14 +469,14 @@ Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./
 - Production scraper scale, multi-region HA, SSO
 - Instagram / Facebook / Quora / on-site Myntra Q&A
 - Switching embedding or chat hosts
-- Putting the Next.js app on Render, or FastAPI on Vercel (Python + BGE + pgvector do not fit Vercel’s model)
+- Putting the Next.js app on Railway, or FastAPI on Vercel (Python + BGE + pgvector do not fit Vercel’s model)
 - Changing frozen constants without a git commit + `python -m src.cli eval`
 
 ---
 
 ## 18. In-repo deploy hooks (done)
 
-1. `render.yaml`, `requirements-api.txt`, `.python-version`, `web/vercel.json`.
+1. `Dockerfile`, `requirements-api.txt`, `.python-version`, `web/vercel.json`.
 2. `REQUIRE_POSTGRES=true` makes `connect_store` wait, then fail — never `local_store.pkl`.
 3. `python -m src.api` uses platform `PORT` when `--port` is omitted; `--migrate` applies SQL after Postgres attaches.
-
+4. `src/db/connect.py` already treats Railway hosts: `.railway.internal` (private, no TLS) and `.rlwy.net` (public, `sslmode=require`).

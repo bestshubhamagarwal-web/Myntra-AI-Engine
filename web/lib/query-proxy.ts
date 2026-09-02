@@ -57,7 +57,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
   }
 
   let lastError =
-    "Query API unreachable. On Vercel set API_BASE_URL to the Render public HTTPS URL.";
+    "Query API unreachable. On Vercel set API_BASE_URL to the Railway public HTTPS URL.";
   const attempts = req.method === "GET" || req.method === "HEAD" ? 3 : 1;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
@@ -70,7 +70,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
         return NextResponse.json(
           {
             detail:
-              "Render API is not reachable (502). Set API_BASE_URL to https://<api>.onrender.com (the web service, not the Postgres host). Confirm the API is live and /health returns store=postgres.",
+              "Query API is not reachable (502). Set API_BASE_URL to https://<api>.up.railway.app (the web service, not the Postgres host). Confirm the API is live and /health returns store=postgres.",
           },
           { status: 502 },
         );
@@ -82,7 +82,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
       ) {
         return NextResponse.json(
           {
-            detail: `Query API 404 at ${target.origin}${target.pathname}. Set Vercel API_BASE_URL to the Render web service origin (https://<api>.onrender.com) with no path, then Redeploy.`,
+            detail: `Query API 404 at ${target.origin}${target.pathname}. Set Vercel API_BASE_URL to the Railway web service origin (https://<api>.up.railway.app) with no path, then Redeploy.`,
           },
           { status: 404 },
         );
@@ -97,7 +97,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
       const name = error instanceof Error ? error.name : "";
       const message = error instanceof Error ? error.message : String(error);
       if (name === "AbortError" || name === "TimeoutError") {
-        lastError = `Query API timed out talking to ${target.origin}. If Render just deployed, retry.`;
+        lastError = `Query API timed out talking to ${target.origin}. If Railway just deployed, retry.`;
         if (attempt === attempts - 1) {
           return NextResponse.json({ detail: lastError }, { status: 504 });
         }
