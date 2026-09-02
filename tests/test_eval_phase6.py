@@ -48,6 +48,7 @@ def test_vercel_proxy_rejects_localhost_on_vercel() -> None:
         encoding="utf-8"
     )
     assert "isVercelRuntime" in backend
+    assert "isHostedVercel" in backend
     assert "vercel.app" in backend
     assert "railway.internal" in backend
     assert "rlwy.net" in backend

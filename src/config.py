@@ -34,7 +34,7 @@ def apply_vercel_runtime_defaults() -> None:
     if not _on_vercel_env():
         return
     os.environ.setdefault("REQUIRE_POSTGRES", "true")
-    os.environ.setdefault("POSTGRES_WAIT_SECONDS", "8")
+    os.environ.setdefault("POSTGRES_WAIT_SECONDS", "20")
     os.environ.setdefault("HF_HOME", "/tmp/models")
     os.environ.setdefault("RAW_STORE_PATH", "/tmp/raw")
     os.environ.setdefault("REVIEW_DUMP_PATH", "/tmp/review")

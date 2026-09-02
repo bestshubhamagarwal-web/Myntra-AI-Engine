@@ -45,8 +45,8 @@ function errorMessageFromBody(payload: unknown): string {
   if (typeof body.message === "string" && body.message.trim()) {
     if (/application failed to respond/i.test(body.message)) {
       return (
-        "Query API is not reachable (502). Set API_BASE_URL to https://<api-project>.vercel.app " +
-        "(the FastAPI project, not Neon/Postgres), and confirm /health returns store=postgres."
+        "Query API is not reachable (502). Confirm the Vercel Framework is Services (web + api), " +
+        "not a Neon/Postgres URL in API_BASE_URL. Open /api/query/health and confirm store=postgres."
       );
     }
     return body.message;
@@ -64,7 +64,7 @@ async function parseError(res: Response): Promise<string> {
   const statusText = (res.statusText || "").trim();
   if (res.status === 404) {
     return (
-      "Query API returned 404. Confirm the dashboard Vercel Root Directory is web, API_BASE_URL is https://<api-project>.vercel.app (no path), then Redeploy."
+      "Query API returned 404. Confirm Framework is Services (repo root, not Root Directory = web). The proxy must reach FastAPI /health — Redeploy, or set API_BASE_URL to https://<api-project>.vercel.app (no path) if you split projects."
     );
   }
   if (statusText) return res.status ? `${res.status} ${statusText}` : statusText;
@@ -203,7 +203,7 @@ export async function queryCopilot(
     method: "POST",
     body: JSON.stringify(body),
     ...(typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-      ? { signal: AbortSignal.timeout(60_000) }
+      ? { signal: AbortSignal.timeout(110_000) }
       : {}),
   });
   return (await res.json()) as CopilotTurnResponse;
