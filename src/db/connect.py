@@ -130,36 +130,40 @@ def resolv_conf_with_private_first(text: str, extra: list[str]) -> str:
     return header + (text or "")
 
 
+def res_options_without_ndots(options: str) -> str:
+    """ndots:0 makes dpg- a FQDN and skips Render's search list."""
+    return " ".join(
+        part for part in (options or "").split() if not part.lower().startswith("ndots")
+    )
+
+
 def apply_resolver_workarounds() -> None:
-    """Debian slim treats single-label dpg- hosts as mDNS and never queries DNS."""
+    """Fix Docker mDNS; do not rewrite native Render DNS (that broke dpg-)."""
     if not on_render():
         return
-    current = (os.environ.get("RES_OPTIONS") or "").strip()
-    if "ndots" not in current.lower():
-        os.environ["RES_OPTIONS"] = f"{current} ndots:0 timeout:2 attempts:2".strip()
-    extra: list[str] = []
-    gw = _default_gateway()
-    if gw:
-        extra.append(gw)
-    extra.extend(["127.0.0.11", "169.254.169.254"])
-    resolv_path = Path("/etc/resolv.conf")
-    try:
-        resolv_text = resolv_path.read_text(encoding="utf-8")
-        rewritten = resolv_conf_with_private_first(resolv_text, extra)
-        if rewritten != resolv_text:
-            resolv_path.write_text(rewritten, encoding="utf-8")
-            log.info("Prepended private DNS nameservers to /etc/resolv.conf.")
-    except OSError as exc:
-        log.warning("Could not update /etc/resolv.conf (%s).", exc)
+    docker = running_in_docker()
+    # Native Python already resolves dpg- via Render's search list. ndots:0 and
+    # fake nameservers (127.0.0.11 / .internal) made that lookup fail.
+    cleaned = res_options_without_ndots(os.environ.get("RES_OPTIONS") or "")
+    if cleaned:
+        os.environ["RES_OPTIONS"] = cleaned
+    else:
+        os.environ.pop("RES_OPTIONS", None)
+    if not docker:
+        log.info(
+            "Render native resolver nameservers=%s RES_OPTIONS=%s",
+            _resolv_conf_nameservers(),
+            os.environ.get("RES_OPTIONS", ""),
+        )
+        return
     path = Path("/etc/nsswitch.conf")
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         log.info(
-            "Render resolver nameservers=%s RES_OPTIONS=%s docker=%s",
+            "Render Docker resolver nameservers=%s RES_OPTIONS=%s",
             _resolv_conf_nameservers(),
             os.environ.get("RES_OPTIONS", ""),
-            running_in_docker(),
         )
         return
     hosts_line = next((line for line in text.splitlines() if line.strip().startswith("hosts:")), "")
@@ -177,10 +181,9 @@ def apply_resolver_workarounds() -> None:
             except OSError as exc:
                 log.warning("Could not update /etc/nsswitch.conf (%s).", exc)
     log.info(
-        "Render resolver nameservers=%s RES_OPTIONS=%s docker=%s",
+        "Render Docker resolver nameservers=%s RES_OPTIONS=%s",
         _resolv_conf_nameservers(),
         os.environ.get("RES_OPTIONS", ""),
-        running_in_docker(),
     )
 
 
@@ -350,21 +353,13 @@ def expand_render_postgres_url(url: str) -> list[str]:
             hosts.append(candidate)
 
     public = f"{pg_id}.{region}-postgres.render.com"
+    # Render internal host is dpg-xxxxx-a (no .internal suffix — that NXDOMAINs).
+    # Blueprint name discovery-db is not a Postgres DNS name.
     if on_render() and running_in_docker():
-        # Docker often cannot resolve single-label dpg- names. Try the public
-        # hostname first (it resolves); private hostaddr is still tried first
-        # in handshake_database_url.
         add_host(public)
         add_host(pg_id)
-        add_host(f"{pg_id}.internal")
-        for name in render_private_service_names():
-            add_host(name)
     elif on_render():
-        # Native Render Python resolves dpg- over the private network.
         add_host(pg_id)
-        add_host(f"{pg_id}.internal")
-        for name in render_private_service_names():
-            add_host(name)
         add_host(public)
     else:
         add_host(public)
@@ -561,10 +556,6 @@ def _conninfo_with_hostaddrs(conninfo: str) -> list[str]:
         extra = _hostname(url)
         if extra and extra not in names:
             names.append(extra)
-    if on_render():
-        for name in render_private_service_names():
-            if name not in names:
-                names.append(name)
     ips: list[str] = []
     for name in names:
         for ip in private_ips_for_host(name):
@@ -1001,10 +992,7 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
         _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
         if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
             last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
-            log.warning(
-                "Postgres host %s did not resolve; trying next hostname.",
-                host,
-            )
+            log.info("Postgres host %s did not resolve; trying next hostname.", host)
             continue
         try:
             with open_psycopg(conninfo, connect_timeout=connect_timeout) as conn:
@@ -1043,7 +1031,7 @@ def postgres_connect(database_url: str, **kwargs):
         _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
         if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
             last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
-            log.warning("Postgres host %s did not resolve; trying next hostname.", host)
+            log.info("Postgres host %s did not resolve; trying next hostname.", host)
             continue
         try:
             options = dict(kwargs)

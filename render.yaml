@@ -71,8 +71,6 @@ services:
         value: "3.11.11"
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: RES_OPTIONS
-        value: ndots:0 timeout:2 attempts:2
       - key: API_HOST
         value: "0.0.0.0"
       - key: REQUIRE_POSTGRES

@@ -33,12 +33,12 @@ def test_render_blueprint_injects_postgres_url():
     assert "PGHOST" in text
     assert "RENDER_POSTGRES_REGION" in text
     assert "RENDER_POSTGRES_NAME" in text
-    assert "RES_OPTIONS" in text
     assert "runtime: python" in text
     assert "requirements-api.txt" in text
     assert "python -m src.api" in text
     assert "PYTHON_VERSION" in text
     assert "runtime: docker" not in text
+    assert "ndots:0" not in text
 
 
 def test_resolve_listen_port_prefers_cli_over_platform_port(monkeypatch):
@@ -270,7 +270,8 @@ def test_conninfo_candidates_render_tries_internal_without_prefer(monkeypatch):
     assert public and "sslnegotiation=direct" in public[0]
     internal = [item for item in cands if _hostname(item) == "dpg-abc123-a"]
     assert internal and "sslmode=disable" in internal[0]
-    assert "discovery-db" in blob
+    assert "dpg-abc123-a.internal" not in blob
+    assert "discovery-db" not in blob
 
 
 def test_conninfo_candidates_docker_tries_public_host_first(monkeypatch):
@@ -307,7 +308,8 @@ def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
     hosts = [_hostname(item) for item in urls]
     assert hosts[0] == "dpg-abc123-a"
     assert "dpg-abc123-a.ohio-postgres.render.com" in hosts
-    assert "discovery-db" in hosts
+    assert "dpg-abc123-a.internal" not in hosts
+    assert "discovery-db" not in hosts
 
 
 def test_dns_lookup_a_returns_empty_when_resolv_conf_missing(monkeypatch):
@@ -348,6 +350,13 @@ def test_conninfo_hostaddr_uses_private_ip_without_tls(monkeypatch):
     assert "sslmode=disable" in alts[0]
 
 
+def test_res_options_without_ndots():
+    from src.db.connect import res_options_without_ndots
+
+    assert res_options_without_ndots("ndots:0 timeout:2 attempts:2") == "timeout:2 attempts:2"
+    assert res_options_without_ndots("") == ""
+
+
 def test_resolv_conf_with_private_first_prepends_gateway():
     from src.db.connect import resolv_conf_with_private_first
 
@@ -375,13 +384,13 @@ def test_api_serve_parser_accepts_migrate():
         main(["--help"])
 
 
-def test_apply_resolver_workarounds_sets_ndots(monkeypatch):
+def test_apply_resolver_workarounds_native_clears_ndots_zero(monkeypatch):
     from src.db.connect import apply_resolver_workarounds
 
     monkeypatch.setenv("RENDER", "true")
-    monkeypatch.delenv("RES_OPTIONS", raising=False)
+    monkeypatch.setenv("RES_OPTIONS", "ndots:0 timeout:2 attempts:2")
     apply_resolver_workarounds()
-    assert "ndots:0" in os.environ.get("RES_OPTIONS", "")
+    assert "ndots" not in os.environ.get("RES_OPTIONS", "").lower()
 
 
 def test_wait_for_postgres_rejects_localhost_on_render(monkeypatch, tmp_path):

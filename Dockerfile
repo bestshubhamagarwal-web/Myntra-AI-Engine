@@ -10,8 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     REVIEW_DUMP_PATH=/data/review \
     REPORTS_PATH=/data/reports \
     LOCK_PATH=/data/locks \
-    LOCAL_STORE_PATH=/data/local_store.pkl \
-    RES_OPTIONS="ndots:0 timeout:2 attempts:2"
+    LOCAL_STORE_PATH=/data/local_store.pkl
 
 WORKDIR /app
 
