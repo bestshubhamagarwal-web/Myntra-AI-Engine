@@ -1,6 +1,7 @@
 # Deployment Plan
 
 **Project:** Myntra Discovery Engine  
+**GitHub:** [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine)  
 **Target:** FastAPI Query API + Postgres on **Railway**, Next.js dashboard on **Vercel**  
 **Companion:** [Architecture.md](./Architecture.md), [Runbook.md](./Runbook.md), [ImplementationPlan.md](./ImplementationPlan.md)
 
@@ -112,7 +113,7 @@ One Railway **project** (same environment), two services, plus Vercel for the UI
 | Service              | Type                                                    | Public?                                                          |
 | -------------------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
 | `pgvector` (or similar name) | Railway **pgvector** template, Postgres 16+     | No (private URL for `api`). Public TCP proxy for laptop pipeline |
-| `discovery-api`      | GitHub → this repo, **root directory = repo root**      | Yes (`*.up.railway.app`)                                         |
+| `discovery-api`      | GitHub → [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine), **root directory = repo root** | Yes (`*.up.railway.app`) |
 | volume on `api`      | Mounted at `/data`                                      | —                                                                |
 | `discovery-pipeline` (optional) | Railway cron, same image / start command     | No                                                               |
 
@@ -129,8 +130,8 @@ Region: pick **one** Railway region for both pgvector and the API (private netwo
 
 ## 4. Prerequisites
 
-- GitHub repo with this project (Railway and Vercel both deploy from git). `.env` and `script.md` stay gitignored.
-- Railway account, Vercel account, Groq key (`GROQ_API_KEY`).
+- GitHub repo: [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine) (Railway and Vercel both deploy from this git remote). `.env` and `script.md` stay gitignored.
+- Railway account (backend + pgvector), Vercel account (frontend only), Groq key (`GROQ_API_KEY`).
 - A long random `API_SHARED_SECRET` and `AUTHOR_HMAC_SECRET`. Generate once; **do not rotate HMAC after real ingest** or `author_hash` values diverge.
 - Python 3.11+ locally if you bootstrap the corpus from the laptop.
 - Optional: `YOUTUBE_API_KEY`, Reddit PRAW pair, `X_BEARER_TOKEN`. Empty keys already have public fallbacks; Instagram / Facebook / Quora stay unavailable.
@@ -203,7 +204,7 @@ Sizing: start with 1 GB RAM / 5–10 GB volume. 1024-d vectors plus raw/normaliz
 
 ## 7. Railway — API service
 
-1. **New → GitHub Repo** → this repo. Root directory = repository root (not `web/`).
+1. **New → GitHub Repo** → [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine). Root directory = repository root (not `web/`).
 2. Builder: **Dockerfile** at repo root (default if the file exists). Watchtower / start command can stay empty so the image `CMD` runs.
 3. **Settings → Networking → Generate domain.** Public URL is `https://<service>.up.railway.app`. Copy this origin into Vercel `API_BASE_URL`.
 4. **Settings → Health check path:** `/health`.
@@ -284,7 +285,7 @@ Only valid if the local DB already used `vector(1024)` BGE-M3 (no dim mix).
 
 ## 9. Vercel — frontend
 
-1. [vercel.com](https://vercel.com) → **Add New → Project** → same GitHub repo.
+1. [vercel.com](https://vercel.com) → **Add New → Project** → [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine).
 2. **Root Directory:** `web` (Edit, not the repo root).
 3. Framework preset: Next.js. Build `npm run build`, output default.
 4. Environment variables (Production + Preview):
@@ -356,8 +357,8 @@ Nothing else from the Python `.env` belongs on Vercel.
 
 Do these in order. Do not attach Vercel until `/health` reports `store=postgres`.
 
-- [ ] Repo on GitHub; `.env` not committed
-- [ ] Deploy the branch that contains `Dockerfile` / `requirements-api.txt` / `web/vercel.json`
+- [ ] Repo on GitHub: [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine); `.env` not committed
+- [ ] Deploy `main` (contains `Dockerfile` / `railway.toml` / `requirements-api.txt` / `web/vercel.json`)
 - [ ] Railway project, region **southeast-asia** (or one region for both services)
 - [ ] Add **pgvector** template (not default Postgres); wait until it is running
 - [ ] Add GitHub service `discovery-api` from repo root; Dockerfile build
