@@ -59,6 +59,16 @@ HOSTED_INVALID_URL = (
 )
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+_PUBLIC_DNS = {
+    "8.8.8.8",
+    "8.8.4.4",
+    "1.1.1.1",
+    "1.0.0.1",
+    "9.9.9.9",
+    "208.67.222.222",
+    "208.67.220.220",
+}
+_PSYCOPG_ONLY = frozenset({"row_factory", "autocommit", "cursor_factory"})
 HOSTED_URL_KEYS = (
     "DISCOVERY_DATABASE_URL",
     "RENDER_DATABASE_URL",
@@ -127,6 +137,11 @@ def apply_resolver_workarounds() -> None:
         log.info("Updated /etc/nsswitch.conf so Render dpg- hostnames use DNS, not mDNS.")
     except OSError as exc:
         log.warning("Could not update /etc/nsswitch.conf (%s).", exc)
+    log.info(
+        "Render resolver nameservers=%s RES_OPTIONS=%s",
+        _resolv_conf_nameservers(),
+        os.environ.get("RES_OPTIONS", ""),
+    )
 
 
 def render_private_service_names() -> list[str]:
@@ -294,12 +309,17 @@ def expand_render_postgres_url(url: str) -> list[str]:
         if candidate and candidate not in hosts:
             hosts.append(candidate)
 
+    public = f"{pg_id}.{region}-postgres.render.com"
     if on_render():
+        # Docker often cannot resolve single-label dpg- names. Try the public
+        # hostname first (it resolves); sslnegotiation=direct is applied later.
+        add_host(public)
         add_host(pg_id)
         add_host(f"{pg_id}.internal")
         for name in render_private_service_names():
             add_host(name)
-    add_host(f"{pg_id}.{region}-postgres.render.com")
+    else:
+        add_host(public)
     add_host(host)
     port = port or "5432"
     out: list[str] = []
@@ -375,7 +395,12 @@ def dns_lookup_a(host: str, timeout: float = 2.0) -> list[str]:
         return offset
 
     found: list[str] = []
-    for ns in _resolv_conf_nameservers():
+    servers = _resolv_conf_nameservers()
+    if "." not in host:
+        servers = [ns for ns in servers if ns not in _PUBLIC_DNS]
+        if not servers:
+            return []
+    for ns in servers:
         family = socket.AF_INET6 if ":" in ns else socket.AF_INET
         sock = None
         try:
@@ -420,6 +445,37 @@ def _conninfo_with_hostaddrs(conninfo: str) -> list[str]:
     if not host or not is_render_internal_host(host):
         return []
     return [_set_query_param(conninfo, "hostaddr", ip) for ip in dns_lookup_a(host)]
+
+
+def conninfo_to_kwargs(url: str) -> dict[str, str]:
+    host, port, user, password, path, query = _split_postgres_url(url)
+    dbname = unquote((path or "/discovery").lstrip("/").split("/")[0] or "discovery")
+    params: dict[str, str] = {}
+    for key, value in parse_qsl(query, keep_blank_values=True):
+        if key:
+            params[key] = value
+    if host:
+        params["host"] = host
+    params["port"] = port or "5432"
+    if user:
+        params["user"] = unquote(user)
+    if password:
+        params["password"] = unquote(password)
+    params["dbname"] = dbname
+    return params
+
+
+def open_psycopg(conninfo: str, **kwargs):
+    """Connect with libpq kwargs so SNI/password encoding stay correct."""
+    timeout = int(kwargs.pop("connect_timeout", None) or 8)
+    psyco = {key: kwargs.pop(key) for key in list(kwargs) if key in _PSYCOPG_ONLY}
+    params = conninfo_to_kwargs(conninfo)
+    try:
+        return psycopg.connect(connect_timeout=timeout, **params, **psyco)
+    except TypeError:
+        params.pop("sslnegotiation", None)
+        params.pop("sslrootcert", None)
+        return psycopg.connect(connect_timeout=timeout, **params, **psyco)
 
 
 def is_render_postgres_host(host: str) -> bool:
@@ -556,8 +612,6 @@ def apply_hosted_database_env() -> str:
     current = normalize_database_url(env_lookup("DATABASE_URL"))
     was_loopback = bool(current) and is_loopback_host(_hostname(current))
     if current and is_remote_postgres_url(current) and not was_loopback:
-        if on_render():
-            current = normalize_database_url(rewrite_render_external_to_internal(current))
         os.environ["DATABASE_URL"] = current
         return current
     if was_loopback:
@@ -694,19 +748,11 @@ def resolve_database_url(explicit: str) -> str:
         for key in ("DISCOVERY_DATABASE_URL", "RENDER_DATABASE_URL"):
             render_url = normalize_database_url(env_lookup(key))
             if is_remote_postgres_url(render_url):
-                chosen = normalize_database_url(rewrite_render_external_to_internal(render_url))
-                if chosen != raw:
-                    log.info("Using %s (host=%s).", key, _hostname(chosen))
-                return chosen
+                if render_url != raw:
+                    log.info("Using %s (host=%s).", key, _hostname(render_url))
+                return render_url
         if is_remote_postgres_url(raw):
-            rewritten = normalize_database_url(rewrite_render_external_to_internal(raw))
-            if rewritten != raw:
-                log.info(
-                    "Rewriting Render External Database URL %s → %s so TLS is not hairpinned.",
-                    _hostname(raw),
-                    _hostname(rewritten),
-                )
-            return rewritten
+            return raw
     if is_remote_postgres_url(raw):
         return raw
     for key in HOSTED_URL_KEYS:
@@ -751,7 +797,17 @@ def conninfo_candidates(database_url: str) -> list[str]:
                 add(_with_query_params(variant, **render_plain))
                 add(_with_query_params(variant, **render_tls))
             else:
+                add(_with_query_params(variant, sslmode="require", sslnegotiation="direct"))
+                add(
+                    _with_query_params(
+                        variant,
+                        sslmode="require",
+                        sslnegotiation="direct",
+                        sslrootcert="system",
+                    )
+                )
                 add(_with_query_params(variant, **render_tls_direct))
+                add(_with_query_params(variant, sslmode="require"))
                 add(_with_query_params(variant, **render_tls))
         return out
     if host.endswith(".railway.internal"):
@@ -788,6 +844,7 @@ def postgres_tcp_open(database_url: str, timeout: float = 1.0) -> bool:
 
 def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> str:
     """Return the conninfo that actually completed SELECT 1."""
+    apply_resolver_workarounds()
     last_exc: Exception | None = None
     for conninfo in conninfo_candidates(database_url):
         host = _hostname(conninfo)
@@ -800,7 +857,7 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
             )
             for alt in _conninfo_with_hostaddrs(conninfo):
                 try:
-                    with psycopg.connect(alt, connect_timeout=connect_timeout) as conn:
+                    with open_psycopg(alt, connect_timeout=connect_timeout) as conn:
                         conn.execute("SELECT 1")
                     return alt
                 except Exception as exc:  # noqa: BLE001 — try the next TLS mode
@@ -808,7 +865,7 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
                     log.warning("Postgres handshake failed host=%s hostaddr fallback (%s).", host, exc)
             continue
         try:
-            with psycopg.connect(conninfo, connect_timeout=connect_timeout) as conn:
+            with open_psycopg(conninfo, connect_timeout=connect_timeout) as conn:
                 conn.execute("SELECT 1")
             return conninfo
         except Exception as exc:  # noqa: BLE001 — try the next TLS mode
@@ -838,7 +895,7 @@ def postgres_connect(database_url: str, **kwargs):
                 try:
                     options = dict(kwargs)
                     options.setdefault("connect_timeout", timeout)
-                    return psycopg.connect(alt, **options)
+                    return open_psycopg(alt, **options)
                 except Exception as exc:  # noqa: BLE001 — try the next TLS mode
                     last_exc = exc
                     log.warning("Postgres connect failed host=%s hostaddr fallback (%s).", host, exc)
@@ -846,7 +903,7 @@ def postgres_connect(database_url: str, **kwargs):
         try:
             options = dict(kwargs)
             options.setdefault("connect_timeout", timeout)
-            return psycopg.connect(conninfo, **options)
+            return open_psycopg(conninfo, **options)
         except Exception as exc:  # noqa: BLE001 — try the next TLS mode
             last_exc = exc
             log.warning("Postgres connect failed host=%s (%s).", _hostname(conninfo) or "?", exc)

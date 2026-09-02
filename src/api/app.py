@@ -320,7 +320,7 @@ def create_app(
         current = getattr(app.state, "repo", None)
         if current is None:
             return JSONResponse(
-                status_code=503,
+                status_code=200,
                 content={
                     "status": "starting",
                     "store": "pending",

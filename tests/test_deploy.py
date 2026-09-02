@@ -210,10 +210,11 @@ def test_wait_for_postgres_uses_pghost_when_database_url_is_localhost(monkeypatc
     assert "localhost" not in repo.database_url
 
 
-def test_resolve_rewrites_render_external_url_on_render(monkeypatch):
+def test_resolve_keeps_public_render_hostname_for_dns(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
     for key in (
         "RENDER_DATABASE_URL",
+        "DISCOVERY_DATABASE_URL",
         "DATABASE_URL",
         "DATABASE_PRIVATE_URL",
         "DATABASE_PUBLIC_URL",
@@ -226,8 +227,7 @@ def test_resolve_rewrites_render_external_url_on_render(monkeypatch):
     url = resolve_database_url(
         "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
     )
-    assert _hostname(url) == "dpg-abc123-a"
-    assert "postgres.render.com" not in url
+    assert _hostname(url) == "dpg-abc123-a.singapore-postgres.render.com"
     assert ":5432" in url
 
 
@@ -254,18 +254,29 @@ def test_conninfo_candidates_render_tries_internal_without_prefer(monkeypatch):
         "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
     )
     assert cands
-    assert _hostname(cands[0]) == "dpg-abc123-a"
+    hosts = [_hostname(item) for item in cands]
+    assert hosts[0] == "dpg-abc123-a.singapore-postgres.render.com"
+    assert "dpg-abc123-a" in hosts
     assert ":5432" in cands[0]
     blob = " ".join(cands)
     assert "sslmode=prefer" not in blob
-    assert "channel_binding=disable" in cands[0]
-    assert "gssencmode=disable" in cands[0]
-    assert "sslmode=disable" in cands[0]
-    assert "dpg-abc123-a.singapore-postgres.render.com" in blob
-    assert "sslnegotiation=direct" in blob
+    assert "sslnegotiation=direct" in cands[0]
+    assert "sslmode=require" in cands[0]
     public = [item for item in cands if "postgres.render.com" in item]
     assert public and "sslnegotiation=direct" in public[0]
+    internal = [item for item in cands if _hostname(item) == "dpg-abc123-a"]
+    assert internal and "sslmode=disable" in internal[0]
     assert "discovery-db" in blob
+
+
+def test_conninfo_candidates_rebuilds_public_host_from_internal(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_POSTGRES_REGION", "singapore")
+    cands = conninfo_candidates("postgresql://u:p@dpg-abc123-a:5432/discovery")
+    blob = " ".join(cands)
+    assert "dpg-abc123-a.singapore-postgres.render.com" in blob
+    assert "sslmode=prefer" not in blob
+    assert _hostname(cands[0]) == "dpg-abc123-a.singapore-postgres.render.com"
 
 
 def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
@@ -276,8 +287,8 @@ def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
         "postgresql://u:p@dpg-abc123-a.ohio-postgres.render.com/discovery"
     )
     hosts = [_hostname(item) for item in urls]
+    assert hosts[0] == "dpg-abc123-a.ohio-postgres.render.com"
     assert "dpg-abc123-a" in hosts
-    assert "dpg-abc123-a.ohio-postgres.render.com" in hosts
     assert "discovery-db" in hosts
 
 
@@ -285,6 +296,13 @@ def test_dns_lookup_a_returns_empty_when_resolv_conf_missing(monkeypatch):
     from src.db import connect as connect_mod
 
     monkeypatch.setattr(connect_mod, "_resolv_conf_nameservers", lambda: [])
+    assert connect_mod.dns_lookup_a("dpg-abc123-a") == []
+
+
+def test_dns_lookup_a_skips_public_resolvers_for_single_label(monkeypatch):
+    from src.db import connect as connect_mod
+
+    monkeypatch.setattr(connect_mod, "_resolv_conf_nameservers", lambda: ["8.8.8.8", "1.1.1.1"])
     assert connect_mod.dns_lookup_a("dpg-abc123-a") == []
 
 
@@ -480,7 +498,7 @@ def test_require_postgres_health_listens_before_db(tmp_path):
     assert body["status"] in {"starting", "ok"}
     overview = client.get("/metrics/overview", headers={"X-API-Key": "deploy-secret"})
     if body["store"] == "pending":
-        assert health.status_code == 503
+        assert health.status_code == 200
         assert overview.status_code == 503
         assert "Postgres" in overview.json()["detail"]
 

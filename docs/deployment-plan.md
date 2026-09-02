@@ -11,11 +11,11 @@ This is a research prototype, not production scraper HA. The goal is a public (o
 ## 1. What we are deploying
 
 
-| Piece                                                     | Lives in               | Host                                      | Role                                                           |
-| --------------------------------------------------------- | ---------------------- | ----------------------------------------- | -------------------------------------------------------------- |
-| Query API + Copilot (`src/api`)                           | repo root              | **Render** web service                    | Metrics, evidence, reports, `POST /copilot/query`              |
-| Postgres + **pgvector** `vector(1024)`                    | migrations `001`–`007` | **Render Postgres** (managed)             | Source of truth                                                |
-| Next.js App Router (`web/`)                               | `web/`                 | **Vercel**                                | Product UI; browsers talk only to Vercel                       |
+| Piece                                                     | Lives in               | Host                                       | Role                                                           |
+| --------------------------------------------------------- | ---------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| Query API + Copilot (`src/api`)                           | repo root              | **Render** web service                     | Metrics, evidence, reports, `POST /copilot/query`              |
+| Postgres + **pgvector** `vector(1024)`                    | migrations `001`–`007` | **Render Postgres** (managed)              | Source of truth                                                |
+| Next.js App Router (`web/`)                               | `web/`                 | **Vercel**                                 | Product UI; browsers talk only to Vercel                       |
 | Pipeline CLI (`ingest` → `cluster` → `ngrams` → `report`) | repo root              | Laptop (recommended), or a Render **cron** | Writes the corpus. Not required for the API process to stay up |
 
 
@@ -41,8 +41,6 @@ Public sources
 
 ---
 
-
-
 ## 2. Constraints that shape this plan
 
 These are not optional footnotes. They decide machine size, start command, and where the pipeline runs.
@@ -51,7 +49,7 @@ These are not optional footnotes. They decide machine size, start command, and w
 
 `src/cli.py serve` and `Settings.require_api_secret_if_public()` refuse to bind anything other than localhost unless `API_SHARED_SECRET` is set. Render must bind `0.0.0.0` and `$PORT`.
 
-Prototype auth is header `X-API-Key` (or `Authorization: Bearer …`). `/health` and `/` are unauthenticated — use `/health` as the Render health check. `/health` returns **503** until Postgres is attached (`store=pending`); Render retries until it is **200** `{"status":"ok","store":"postgres"}`.
+Prototype auth is header `X-API-Key` (or `Authorization: Bearer …`). `/health` and `/` are unauthenticated — use `/health` as the Render health check. `/health` returns **200** while the process is up (`store=pending` until Postgres attaches, then `{"status":"ok","store":"postgres"}`). Metrics stay 503 until the store is ready so Render does not restart the API mid-handshake.
 
 ### 2.2 Postgres fallback is a local-dev trap
 
@@ -67,7 +65,7 @@ Production `DATABASE_URL` must be reachable at process start. Prefer the **inter
 
 Embeddings never leave the machine (`BAAI/bge-m3`, dim **1024**). Weights are ~2 GB under `HF_HOME`. Copilot `search_chunks` loads Sentence-Transformers on first use (`src/api/copilot.py`). Dashboard metrics work without loading BGE; Copilot vector search does not.
 
-Budget **≥8 GB RAM** for the API service if Copilot retrieval should work. Render plan **`2c-8g`** (2 CPU / 8 GB). A 512 MB free instance will OOM on first Copilot retrieve (metrics-only still works; Copilot then uses tagged quotes / Groq tools only, with `embed_error` in tool JSON).
+Budget **≥8 GB RAM** for the API service if Copilot retrieval should work. Render plan `**2c-8g`** (2 CPU / 8 GB). A 512 MB free instance will OOM on first Copilot retrieve (metrics-only still works; Copilot then uses tagged quotes / Groq tools only, with `embed_error` in tool JSON).
 
 Do not switch to OpenAI embeddings to “make Render cheaper.” That violates Architecture §5.1.
 
@@ -104,19 +102,17 @@ Play Store / public Reddit / Nitter-style hosts often **403/429 from datacenter 
 
 ---
 
-
-
 ## 3. Target Render workspace
 
 One Render Blueprint (`render.yaml`), two (or three) resources:
 
 
-| Service             | Type                                               | Public?                                                       |
-| ------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
-| `discovery-db`      | Render Postgres 16 + pgvector                      | No (internal URL for `api`). External URL for laptop pipeline |
-| `discovery-api`     | GitHub → this repo, **root directory = repo root** | Yes (`*.onrender.com`)                                        |
-| disk on `api`       | Persistent disk mounted at `/data`                 | —                                                             |
-| `discovery-pipeline` (optional) | Cron, same Docker image                  | No                                                            |
+| Service                         | Type                                               | Public?                                                       |
+| ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
+| `discovery-db`                  | Render Postgres 16 + pgvector                      | No (internal URL for `api`). External URL for laptop pipeline |
+| `discovery-api`                 | GitHub → this repo, **root directory = repo root** | Yes (`*.onrender.com`)                                        |
+| disk on `api`                   | Persistent disk mounted at `/data`                 | —                                                             |
+| `discovery-pipeline` (optional) | Cron, same Docker image                            | No                                                            |
 
 
 Do **not** point the Vercel project at the repo root. Vercel’s root directory is `web/`.
@@ -124,8 +120,6 @@ Do **not** point the Vercel project at the repo root. Vercel’s root directory 
 Region: pick **one** Render region for both Postgres and the API (private networking is same-region only). Closest to India is **Singapore**. Vercel: `sin1`. Region cannot be changed after the Blueprint first creates the resources.
 
 ---
-
-
 
 ## 4. Prerequisites
 
@@ -136,8 +130,6 @@ Region: pick **one** Render region for both Postgres and the API (private networ
 - Optional: `YOUTUBE_API_KEY`, Reddit PRAW pair, `X_BEARER_TOKEN`. Empty keys already have public fallbacks; Instagram / Facebook / Quora stay unavailable.
 
 ---
-
-
 
 ## 5. Files in the repo
 
@@ -254,8 +246,6 @@ Framework preset **Next.js**, Vercel **Root Directory =** `web`. `web/package.js
 
 ---
 
-
-
 ## 6. Render — Postgres (pgvector)
 
 1. Created by the Blueprint (`discovery-db`), or **Dashboard → New → Postgres**.
@@ -270,38 +260,34 @@ Sizing: start with `0.5c-1g` and 5–10 GB disk. 1024-d vectors plus raw/normali
 
 ---
 
-
-
 ## 7. Render — API service
 
 1. Blueprint creates `discovery-api` from this repo. Root directory = repository root (not `web/`).
 2. Runtime: **Docker**. Dockerfile from §5.2.
 3. Public URL is `https://discovery-api.onrender.com` (or the name you chose). Copy this origin into Vercel `API_BASE_URL`.
-4. Disk at `/data` (Blueprint). Plan **`2c-8g`** for Copilot + BGE; **`1c-2g`** is acceptable for a metrics-only demo (expect Copilot retrieve to skip vectors).
+4. Disk at `/data` (Blueprint). Plan `**2c-8g**` for Copilot + BGE; `**1c-2g**` is acceptable for a metrics-only demo (expect Copilot retrieve to skip vectors).
 5. Variables (see §10). Minimum to boot:
 
-  | Name                 | Value                                                              |
-  | -------------------- | ------------------------------------------------------------------ |
-  | `DATABASE_URL`       | Internal connection string (Blueprint `fromDatabase`)              |
-  | `API_HOST`           | `0.0.0.0` (image default)                                          |
-  | `REQUIRE_POSTGRES`   | `true` (image default)                                             |
-  | `API_SHARED_SECRET`  | long random string (paste on first Blueprint apply; copy to Vercel)|
-  | `AUTHOR_HMAC_SECRET` | long random string (stable)                                        |
-  | `GROQ_API_KEY`       | Groq key                                                           |
-  | `HF_HOME`            | `/data/models`                                                     |
-  | `RAW_STORE_PATH`     | `/data/raw`                                                        |
-  | `REPORTS_PATH`       | `/data/reports`                                                    |
-  | `LOCK_PATH`          | `/data/locks`                                                      |
-  | `LOCAL_STORE_PATH`   | `/data/local_store.pkl` (must not be the live store)               |
+  | Name                 | Value                                                               |
+  | -------------------- | ------------------------------------------------------------------- |
+  | `DATABASE_URL`       | Internal connection string (Blueprint `fromDatabase`)               |
+  | `API_HOST`           | `0.0.0.0` (image default)                                           |
+  | `REQUIRE_POSTGRES`   | `true` (image default)                                              |
+  | `API_SHARED_SECRET`  | long random string (paste on first Blueprint apply; copy to Vercel) |
+  | `AUTHOR_HMAC_SECRET` | long random string (stable)                                         |
+  | `GROQ_API_KEY`       | Groq key                                                            |
+  | `HF_HOME`            | `/data/models`                                                      |
+  | `RAW_STORE_PATH`     | `/data/raw`                                                         |
+  | `REPORTS_PATH`       | `/data/reports`                                                     |
+  | `LOCK_PATH`          | `/data/locks`                                                       |
+  | `LOCAL_STORE_PATH`   | `/data/local_store.pkl` (must not be the live store)                |
 
-6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. If `store` stays `pending` or logs show `SSL connection has been closed unexpectedly`, the API used the **External** hostname (`*.singapore-postgres.render.com`). That hairpins TLS to a public IP from inside Render. Set `DATABASE_URL` to the **Internal** Database URL (`postgresql://…@dpg-…/discovery`, no `.render.com`) and confirm API + database share a region.
+6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `pending`, the process is up and still attaching Postgres (liveness is 200). If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. If `store` stays `pending` or logs show `SSL connection has been closed unexpectedly`, the API retries `dpg-….singapore-postgres.render.com` with `sslnegotiation=direct`. Confirm API + database share a region (Singapore).
 7. After the first successful deploy, confirm OpenAPI at `https://<api>.onrender.com/docs` (optional; still behind CORS).
 
 First Docker build (CPU torch + Sentence-Transformers) can take 10–20 minutes. That is a **build**, not a hung deploy.
 
 ---
-
-
 
 ## 8. Bootstrap data
 
@@ -352,8 +338,6 @@ Only valid if the local DB already used `vector(1024)` BGE-M3 (no dim mix).
 
 ---
 
-
-
 ## 9. Vercel — frontend
 
 1. [vercel.com](https://vercel.com) → **Add New → Project** → same GitHub repo.
@@ -361,10 +345,10 @@ Only valid if the local DB already used `vector(1024)` BGE-M3 (no dim mix).
 3. Framework preset: Next.js. Build `npm run build`, output default.
 4. Environment variables (Production + Preview):
 
-  | Name                | Value                                              | Exposed to browser?        |
-  | ------------------- | -------------------------------------------------- | -------------------------- |
-  | `API_BASE_URL`      | `https://<api>.onrender.com` (no trailing slash)   | **No** — server proxy only |
-  | `API_SHARED_SECRET` | identical to Render                                | **No**                     |
+  | Name                | Value                                            | Exposed to browser?        |
+  | ------------------- | ------------------------------------------------ | -------------------------- |
+  | `API_BASE_URL`      | `https://<api>.onrender.com` (no trailing slash) | **No** — server proxy only |
+  | `API_SHARED_SECRET` | identical to Render                              | **No**                     |
 
    The proxy injects `X-API-Key` from `API_SHARED_SECRET` when the browser does not send one (`web/app/api/query/[...path]/route.ts`). With both set, users should **not** see the AuthGate. If you omit the secret on Vercel but set it on Render, the unlock screen appears and the value is stored in `sessionStorage` only.
 5. Region: pick the Vercel region closest to the Render region (Singapore → `sin1`, Oregon → `sfo1`) so Copilot’s two hops stay short.
@@ -374,8 +358,6 @@ Preview deployments: either allow `https://*.vercel.app` in Render `API_CORS_ORI
 
 ---
 
-
-
 ## 10. Environment reference
 
 Copy from `.env.example`. Secrets stay in the host dashboards, never in git.
@@ -383,24 +365,24 @@ Copy from `.env.example`. Secrets stay in the host dashboards, never in git.
 ### 10.1 Render `discovery-api` — required
 
 
-| Variable             | Production notes                                                |
-| -------------------- | --------------------------------------------------------------- |
+| Variable             | Production notes                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`       | **Internal** URL only (`dpg-…`, no `.render.com`). Blueprint also sets `RENDER_DATABASE_URL` + `PGHOST` |
-| `GROQ_API_KEY`       | Generation only. `GROQ_BASE_URL=https://api.groq.com/openai/v1` |
-| `GROQ_MODEL`         | Frozen `openai/gpt-oss-120b`                                    |
-| `GROQ_MODEL_LIGHT`   | Frozen `openai/gpt-oss-20b`                                     |
-| `BGE_MODEL_ID`       | `BAAI/bge-m3`                                                   |
-| `EMBEDDING_DIM`      | `1024`                                                          |
-| `HF_HOME`            | `/data/models`                                                  |
-| `AUTHOR_HMAC_SECRET` | Required for real ingest; keep stable                           |
-| `API_HOST`           | `0.0.0.0` (image default)                                       |
-| `REQUIRE_POSTGRES`   | `true` (image default — do not turn off)                        |
-| `API_SHARED_SECRET`  | Required (public bind)                                          |
-| `API_CORS_ORIGINS`   | `https://<vercel-prod>,http://localhost:3000`                   |
-| `RAW_STORE_PATH`     | `/data/raw`                                                     |
-| `REPORTS_PATH`       | `/data/reports`                                                 |
-| `LOCK_PATH`          | `/data/locks`                                                   |
-| `C_MAX` / `S_MAX`    | `200` / `4`                                                     |
+| `GROQ_API_KEY`       | Generation only. `GROQ_BASE_URL=https://api.groq.com/openai/v1`                                         |
+| `GROQ_MODEL`         | Frozen `openai/gpt-oss-120b`                                                                            |
+| `GROQ_MODEL_LIGHT`   | Frozen `openai/gpt-oss-20b`                                                                             |
+| `BGE_MODEL_ID`       | `BAAI/bge-m3`                                                                                           |
+| `EMBEDDING_DIM`      | `1024`                                                                                                  |
+| `HF_HOME`            | `/data/models`                                                                                          |
+| `AUTHOR_HMAC_SECRET` | Required for real ingest; keep stable                                                                   |
+| `API_HOST`           | `0.0.0.0` (image default)                                                                               |
+| `REQUIRE_POSTGRES`   | `true` (image default — do not turn off)                                                                |
+| `API_SHARED_SECRET`  | Required (public bind)                                                                                  |
+| `API_CORS_ORIGINS`   | `https://<vercel-prod>,http://localhost:3000`                                                           |
+| `RAW_STORE_PATH`     | `/data/raw`                                                                                             |
+| `REPORTS_PATH`       | `/data/reports`                                                                                         |
+| `LOCK_PATH`          | `/data/locks`                                                                                           |
+| `C_MAX` / `S_MAX`    | `200` / `4`                                                                                             |
 
 
 Render sets `PORT`. Uvicorn must use `${PORT}`. You do not need `API_PORT` if the Dockerfile uses `$PORT`.
@@ -424,8 +406,6 @@ Nothing else from the Python `.env` belongs on Vercel.
 
 ---
 
-
-
 ## 11. Order of operations (checklist)
 
 Do these in order. Do not attach Vercel until `/health` reports `store=postgres`.
@@ -446,8 +426,6 @@ Do these in order. Do not attach Vercel until `/health` reports `store=postgres`
 - [ ] Optional: one cron for pipeline; disable local Task Scheduler if cron is on
 
 ---
-
-
 
 ## 12. Smoke tests after go-live
 
@@ -473,25 +451,21 @@ In the UI:
 
 ---
 
-
-
 ## 13. Resource and cost sketch
 
 
-| Resource                    | Why it exists                              | Ballpark                           |
-| --------------------------- | ------------------------------------------ | ---------------------------------- |
-| Render Postgres `0.5c-1g`   | Persistent SQL + vectors                   | Small always-on Postgres           |
-| Render `discovery-api` `2c-8g` | FastAPI + optional BGE                  | Dominant compute cost              |
-| Render disk ~10 GB          | Weights + reports + raw                    | Cheap vs RAM                       |
-| Vercel Hobby/Pro            | Next.js + 120 s proxy                      | UI + Copilot hop                   |
-| Groq TPM                    | Extract, labels, Copilot, report narrative | Same as local; `GROQ_MAX_TPM=8000` |
+| Resource                       | Why it exists                              | Ballpark                           |
+| ------------------------------ | ------------------------------------------ | ---------------------------------- |
+| Render Postgres `0.5c-1g`      | Persistent SQL + vectors                   | Small always-on Postgres           |
+| Render `discovery-api` `2c-8g` | FastAPI + optional BGE                     | Dominant compute cost              |
+| Render disk ~10 GB             | Weights + reports + raw                    | Cheap vs RAM                       |
+| Vercel Hobby/Pro               | Next.js + 120 s proxy                      | UI + Copilot hop                   |
+| Groq TPM                       | Extract, labels, Copilot, report narrative | Same as local; `GROQ_MAX_TPM=8000` |
 
 
 BGE is not billed; it is RAM + disk. Groq 429: raise `GROQ_MIN_INTERVAL_SECONDS`, lower `--limit`. Do not point `GROQ_BASE_URL` at OpenAI ([Runbook.md](./Runbook.md)).
 
 ---
-
-
 
 ## 14. Security
 
@@ -504,35 +478,31 @@ BGE is not billed; it is RAM + disk. Groq 429: raise `GROQ_MIN_INTERVAL_SECONDS`
 
 ---
 
-
-
 ## 15. Failure modes (deploy-specific)
 
 
-| Symptom                                                      | Likely cause                                                      | Fix                                                                 |
-| ------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Render deploy healthy, UI empty, `/health` `store=memory`    | `DATABASE_URL` wrong or pg not up at boot                         | Internal URL from Blueprint; restart after Postgres is Available    |
-| `/health` stuck `store=pending`                              | Internal host unreachable (wrong region) or TLS                   | Same region (Singapore); public hostname is the DNS fallback        |
-| `failed to resolve host 'dpg-…'`                             | Short host is private DNS only; not in public DNS                 | Code retries `dpg-….{region}-postgres.render.com`; keep same region |
-| `SSL connection has been closed unexpectedly`                | TLS/channel-binding on the public Postgres hostname               | `sslmode=require` + `channel_binding=disable`; same-region services |
-| `CREATE EXTENSION vector` fails                              | Not Render Postgres, or too-old image                             | Use managed Render Postgres 16+                                     |
-| Health check never passes                                    | Bind `127.0.0.1` or port 8000 instead of `$PORT`                  | Dockerfile CMD in §5.2                                              |
-| `API_SHARED_SECRET is required when binding…`                | Used `src.cli serve` on `0.0.0.0` without secret                  | Set secret                                                          |
-| Vercel 502 `Query API unreachable`                           | `API_BASE_URL` trailing path, `http` vs `https`, or API asleep    | Origin only, HTTPS, `*.onrender.com` (not the Postgres host)        |
-| Vercel 401 AuthGate                                          | Secret on Render only                                             | Set the same secret on Vercel, or type it in the gate               |
-| Copilot 504                                                  | Render cold start + BGE load + Groq > proxy budget                | Paid plan (no spin-down); 8 GB RAM; retry                           |
-| OOMKilled on first Copilot question                          | BGE load on a small replica                                       | Scale to `2c-8g` or accept retrieve skip                            |
-| Report PDF 404                                               | `REPORTS_PATH` not on the API disk / report ran on laptop or cron | Re-run `report` in the API Shell                                    |
-| Play Store ingest `failed` on Render                         | Datacenter 403                                                    | Run ingest from laptop; mark source unavailable                     |
-| Themes look like a different corpus                          | Laptop pickle store vs Postgres                                   | Confirm both use the same Render `DATABASE_URL`                     |
-| `API_BASE_URL` error about `dpg-` / `postgres.render.com`    | Pasted the database URL into Vercel                               | Use the **web service** `https://<api>.onrender.com`                |
+| Symptom                                                   | Likely cause                                                      | Fix                                                                 |
+| --------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Render deploy healthy, UI empty, `/health` `store=memory` | `DATABASE_URL` wrong or pg not up at boot                         | Internal URL from Blueprint; restart after Postgres is Available    |
+| `/health` stuck `store=pending`                           | Internal host unreachable (wrong region) or TLS                   | Same region (Singapore); public hostname is the DNS fallback        |
+| `failed to resolve host 'dpg-…'`                          | Short host is private DNS only; not in public DNS                 | Code retries `dpg-….{region}-postgres.render.com`; keep same region |
+| `SSL connection has been closed unexpectedly`             | TLS/channel-binding on the public Postgres hostname               | `sslmode=require` + `channel_binding=disable`; same-region services |
+| `CREATE EXTENSION vector` fails                           | Not Render Postgres, or too-old image                             | Use managed Render Postgres 16+                                     |
+| Health check never passes                                 | Bind `127.0.0.1` or port 8000 instead of `$PORT`                  | Dockerfile CMD in §5.2                                              |
+| `API_SHARED_SECRET is required when binding…`             | Used `src.cli serve` on `0.0.0.0` without secret                  | Set secret                                                          |
+| Vercel 502 `Query API unreachable`                        | `API_BASE_URL` trailing path, `http` vs `https`, or API asleep    | Origin only, HTTPS, `*.onrender.com` (not the Postgres host)        |
+| Vercel 401 AuthGate                                       | Secret on Render only                                             | Set the same secret on Vercel, or type it in the gate               |
+| Copilot 504                                               | Render cold start + BGE load + Groq > proxy budget                | Paid plan (no spin-down); 8 GB RAM; retry                           |
+| OOMKilled on first Copilot question                       | BGE load on a small replica                                       | Scale to `2c-8g` or accept retrieve skip                            |
+| Report PDF 404                                            | `REPORTS_PATH` not on the API disk / report ran on laptop or cron | Re-run `report` in the API Shell                                    |
+| Play Store ingest `failed` on Render                      | Datacenter 403                                                    | Run ingest from laptop; mark source unavailable                     |
+| Themes look like a different corpus                       | Laptop pickle store vs Postgres                                   | Confirm both use the same Render `DATABASE_URL`                     |
+| `API_BASE_URL` error about `dpg-` / `postgres.render.com` | Pasted the database URL into Vercel                               | Use the **web service** `https://<api>.onrender.com`                |
 
 
 Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./Runbook.md).
 
 ---
-
-
 
 ## 16. Rollback
 
@@ -542,8 +512,6 @@ Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./
 - **Frontend/backend contract:** keep API and `web/` on the same git SHA when possible. The UI must not re-aggregate if an old frontend hits a new API, but missing fields can blank a view.
 
 ---
-
-
 
 ## 17. Out of scope (this plan)
 
@@ -555,10 +523,9 @@ Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./
 
 ---
 
-
-
 ## 18. In-repo deploy hooks (done)
 
 1. `Dockerfile`, `render.yaml`, `.dockerignore`, `web/vercel.json`.
 2. `REQUIRE_POSTGRES=true` (API image default) makes `connect_store` wait, then fail — never `local_store.pkl`.
 3. `python -m src.cli serve` uses platform `PORT` when `--port` is omitted; `--migrate` applies SQL before uvicorn.
+

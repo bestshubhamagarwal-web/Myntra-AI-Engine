@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -18,6 +19,7 @@ FROZEN_GROQ_MODEL = "openai/gpt-oss-120b"
 FROZEN_GROQ_MODEL_LIGHT = "openai/gpt-oss-20b"
 FROZEN_BGE_MODEL_ID = BGE_DEFAULT_MODEL_ID
 FROZEN_EMBEDDING_DIM = BGE_M3_DIM
+log = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -176,12 +178,18 @@ class Settings(BaseSettings):
         return secret
 
     def ensure_runtime_dirs(self) -> None:
-        self.raw_store_path.mkdir(parents=True, exist_ok=True)
-        self.review_dump_path.mkdir(parents=True, exist_ok=True)
-        self.hf_home.mkdir(parents=True, exist_ok=True)
-        self.reports_path.mkdir(parents=True, exist_ok=True)
-        self.lock_path.mkdir(parents=True, exist_ok=True)
-        self.local_store_path.parent.mkdir(parents=True, exist_ok=True)
+        for path in (
+            self.raw_store_path,
+            self.review_dump_path,
+            self.hf_home,
+            self.reports_path,
+            self.lock_path,
+            self.local_store_path.parent,
+        ):
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                log.warning("Could not create runtime dir %s (%s).", path, exc)
 
     def cors_origin_list(self) -> list[str]:
         return [part.strip() for part in (self.api_cors_origins or "").split(",") if part.strip()]
