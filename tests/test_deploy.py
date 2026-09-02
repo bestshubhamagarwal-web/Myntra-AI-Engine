@@ -9,9 +9,12 @@ from src.config import Settings, resolve_listen_port
 from src.db.connect import (
     PostgresRequiredError,
     connect_store,
+    conninfo_candidates,
     normalize_database_url,
     resolve_database_url,
+    rewrite_render_external_to_internal,
     wait_for_postgres,
+    _hostname,
 )
 from src.db.local import PersistentMemoryRepository
 
@@ -23,6 +26,7 @@ def test_render_blueprint_injects_postgres_url():
     assert "fromDatabase" in text
     assert "RENDER_DATABASE_URL" in text
     assert "connectionString" in text
+    assert "PGHOST" in text
 
 
 def test_resolve_listen_port_prefers_cli_over_platform_port(monkeypatch):
@@ -50,6 +54,9 @@ def test_normalize_database_url_rewrites_scheme_and_hosted_ssl():
         "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
     )
     assert "sslmode=require" in render_ext
+    assert "channel_binding=disable" in render_ext
+    assert "gssencmode=disable" in render_ext
+    assert "dpg-abc123-a.singapore-postgres.render.com:5432" in render_ext
     render_int = normalize_database_url("postgresql://u:p@dpg-abc123-a:5432/discovery")
     assert "sslmode=require" in render_int
     public = normalize_database_url("postgresql://u:p@turn.proxy.rlwy.net:1234/railway")
@@ -58,6 +65,22 @@ def test_normalize_database_url_rewrites_scheme_and_hosted_ssl():
     assert "sslmode=disable" in internal
     quoted = normalize_database_url('  "postgresql://u:p@h:5432/db"  ')
     assert quoted == "postgresql://u:p@h:5432/db"
+
+
+def test_normalize_database_url_keeps_host_when_password_has_at():
+    url = normalize_database_url(
+        "postgresql://u:p@ss:word@dpg-abc123-a.singapore-postgres.render.com/discovery"
+    )
+    assert _hostname(url) == "dpg-abc123-a.singapore-postgres.render.com"
+    assert ":5432/" in url
+    assert "localhost" not in url
+
+
+def test_rewrite_render_external_to_internal_host():
+    src = "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
+    out = rewrite_render_external_to_internal(src)
+    assert _hostname(out) == "dpg-abc123-a"
+    assert "postgres.render.com" not in out
 
 
 def test_resolve_database_url_prefers_private_when_local(monkeypatch):
@@ -94,6 +117,59 @@ def test_resolve_database_url_prefers_render_url_over_localhost(monkeypatch):
     url = resolve_database_url("postgresql://discovery:discovery@localhost:5432/discovery")
     assert "dpg-abc123-a" in url
     assert "localhost" not in url
+
+
+def test_resolve_rewrites_render_external_url_on_render(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    for key in (
+        "RENDER_DATABASE_URL",
+        "DATABASE_URL",
+        "DATABASE_PRIVATE_URL",
+        "DATABASE_PUBLIC_URL",
+        "POSTGRES_URL",
+        "POSTGRES_PRISMA_URL",
+        "PGHOST",
+        "PG_HOST",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    url = resolve_database_url(
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
+    )
+    assert _hostname(url) == "dpg-abc123-a"
+    assert "postgres.render.com" not in url
+    assert ":5432" in url
+
+
+def test_resolve_prefers_render_internal_over_external_env(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery",
+    )
+    monkeypatch.setenv(
+        "RENDER_DATABASE_URL",
+        "postgresql://u:p@dpg-abc123-a:5432/discovery",
+    )
+    url = resolve_database_url(
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
+    )
+    assert _hostname(url) == "dpg-abc123-a"
+    assert "postgres.render.com" not in url
+
+
+def test_conninfo_candidates_render_tries_internal_without_prefer(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    cands = conninfo_candidates(
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
+    )
+    assert cands
+    assert _hostname(cands[0]) == "dpg-abc123-a"
+    assert ":5432" in cands[0]
+    blob = " ".join(cands)
+    assert "sslmode=prefer" not in blob
+    assert "channel_binding=disable" in cands[0]
+    assert "gssencmode=disable" in cands[0]
+    assert "sslmode=disable" in cands[0]
 
 
 def test_wait_for_postgres_rejects_localhost_on_render(monkeypatch, tmp_path):
@@ -242,7 +318,13 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     local = pending_store_detail("could not connect to server at localhost")
     assert "localhost" in local.lower()
     private = pending_store_detail("handshake failed (host=dpg-abc123-a)")
-    assert "External Database URL" in private or "render.com" in private
+    assert "Internal Database URL" in private or "dpg-" in private
+    ssl = pending_store_detail(
+        "connection to server at \"13.214.97.86\", port 5432 failed: "
+        "SSL connection has been closed unexpectedly"
+    )
+    assert "Internal Database URL" in ssl
+    assert "External" in ssl
 
 
 def test_require_postgres_health_listens_before_db(tmp_path):

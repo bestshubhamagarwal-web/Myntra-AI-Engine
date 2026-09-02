@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import socket
 import time
-from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, quote_plus, unquote, urlencode, urlparse
 
 import psycopg
 
@@ -32,6 +33,13 @@ HOSTED_LOCAL_URL = (
     "DATABASE_URL still points at localhost on the hosted API. Open the Postgres "
     "service → Connect, copy the Internal Database URL (postgresql://…@dpg-…), "
     "paste it on the API service, redeploy. Do not paste the laptop .env value."
+)
+
+HOSTED_RENDER_TLS = (
+    "Render Postgres closed TLS unexpectedly. The API used the External Database "
+    "URL (host ends with .singapore-postgres.render.com), which hairpins to a "
+    "public IP from inside Render and drops SSL. Set DATABASE_URL to the Internal "
+    "Database URL (host is dpg-… with no .render.com suffix), same region as the API."
 )
 
 HOSTED_INVALID_URL = (
@@ -74,8 +82,101 @@ def on_hosted_platform() -> bool:
     return on_render() or on_railway()
 
 
+def env_lookup(*keys: str) -> str:
+    """Read an env var, ignoring key case (Render/Linux are case-sensitive)."""
+    wanted = {key.upper() for key in keys if key}
+    for name, value in os.environ.items():
+        if name.upper() in wanted and (value or "").strip():
+            return (value or "").strip()
+    return ""
+
+
 def _hostname(database_url: str) -> str:
-    return (urlparse(database_url).hostname or "").strip().lower()
+    host, _port, _user, _password, _path, _query = _split_postgres_url(database_url)
+    return (host or "").strip().lower()
+
+
+def looks_like_hosted_postgres_dsn(url: str) -> bool:
+    text = (url or "").lower()
+    return (
+        "dpg-" in text
+        or "postgres.render.com" in text
+        or ".railway.internal" in text
+        or ".rlwy.net" in text
+        or ".railway.app" in text
+    )
+
+
+def _split_postgres_url(url: str) -> tuple[str, str, str, str, str, str]:
+    """Split DSN without urlparse so passwords may contain '@' or ':'."""
+    cleaned = (url or "").strip().strip('"').strip("'")
+    if cleaned.startswith("postgres://"):
+        cleaned = "postgresql://" + cleaned[len("postgres://") :]
+    if not cleaned.lower().startswith("postgresql://"):
+        return "", "", "", "", "", ""
+    rest = cleaned[len("postgresql://") :]
+    query = ""
+    if "?" in rest:
+        rest, query = rest.split("?", 1)
+    user = ""
+    password = ""
+    if "@" in rest:
+        userinfo, rest = rest.rsplit("@", 1)
+        if ":" in userinfo:
+            user, password = userinfo.split(":", 1)
+        else:
+            user = userinfo
+    path = ""
+    if "/" in rest:
+        rest, path = rest.split("/", 1)
+        path = "/" + path
+    host = rest
+    port = ""
+    if host.startswith("["):
+        end = host.find("]")
+        if end != -1:
+            port = host[end + 1 :].lstrip(":")
+            host = host[1:end]
+    elif host.count(":") == 1:
+        host, port = host.split(":", 1)
+    return host, port, user, password, path, query
+
+
+_RENDER_EXTERNAL_HOST = re.compile(
+    r"^(dpg-[a-z0-9-]+)\.[a-z0-9-]+-postgres\.render\.com$",
+    re.IGNORECASE,
+)
+
+
+def _rebuild_postgres_url(
+    host: str,
+    port: str,
+    user: str,
+    password: str,
+    path: str,
+    query: str,
+) -> str:
+    user_q = quote(unquote(user), safe="") if user else ""
+    pass_q = quote(unquote(password), safe="") if password else ""
+    auth = f"{user_q}:{pass_q}@" if (user_q or pass_q) else ""
+    hostport = host
+    if ":" in host and not host.startswith("["):
+        hostport = f"[{host}]"
+    if port:
+        hostport = f"{hostport}:{port}"
+    url = f"postgresql://{auth}{hostport}{path or ''}"
+    if query:
+        url += f"?{query}"
+    return url
+
+
+def rewrite_render_external_to_internal(url: str) -> str:
+    """dpg-xxx.singapore-postgres.render.com → dpg-xxx (private network, no TLS hairpin)."""
+    host, port, user, password, path, query = _split_postgres_url(url)
+    match = _RENDER_EXTERNAL_HOST.match((host or "").strip().lower())
+    if not match:
+        return url
+    return _rebuild_postgres_url(match.group(1), port or "5432", user, password, path, query)
 
 
 def is_loopback_host(host: str | None) -> bool:
@@ -106,44 +207,67 @@ def is_remote_postgres_url(url: str) -> bool:
     cleaned = normalize_database_url(url)
     if not cleaned or "${{" in cleaned or "{{" in cleaned:
         return False
-    parsed = urlparse(cleaned)
-    if parsed.scheme not in {"postgres", "postgresql"}:
+    if not cleaned.lower().startswith(("postgres://", "postgresql://")):
         return False
-    host = (parsed.hostname or "").strip()
+    host = _hostname(cleaned)
     return bool(host) and not is_loopback_host(host)
 
 
 def _set_query_param(url: str, key: str, value: str) -> str:
-    parsed = urlparse(url)
-    pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k.lower() != key.lower()]
+    host, port, user, password, path, query = _split_postgres_url(url)
+    if not host:
+        return url
+    pairs = [(k, v) for k, v in parse_qsl(query, keep_blank_values=True) if k.lower() != key.lower()]
     pairs.append((key, value))
-    return urlunparse(parsed._replace(query=urlencode(pairs)))
+    return _rebuild_postgres_url(host, port or "5432", user, password, path, urlencode(pairs))
+
+
+def _with_query_params(url: str, **params: str) -> str:
+    result = url
+    for key, value in params.items():
+        result = _set_query_param(result, key, value)
+    return result
 
 
 def normalize_database_url(url: str) -> str:
-    """postgres:// → postgresql://, strip quotes, default sslmode for hosted hosts."""
+    """postgres:// → postgresql://, strip quotes, default port 5432 and hosted TLS params."""
     cleaned = (url or "").strip().strip('"').strip("'")
     if not cleaned:
         return ""
-    if cleaned.startswith("postgres://"):
-        cleaned = "postgresql://" + cleaned[len("postgres://") :]
-    parsed = urlparse(cleaned)
-    has_ssl = any(k.lower() == "sslmode" for k, _ in parse_qsl(parsed.query, keep_blank_values=True))
-    host = (parsed.hostname or "").lower()
-    if not has_ssl:
-        if (
-            host.endswith(".rlwy.net")
-            or host.endswith(".railway.app")
-            or is_render_postgres_host(host)
-        ):
-            cleaned = _set_query_param(cleaned, "sslmode", "require")
-        elif host.endswith(".railway.internal"):
-            cleaned = _set_query_param(cleaned, "sslmode", "disable")
-    return cleaned
+    host, port, user, password, path, query = _split_postgres_url(cleaned)
+    if not host:
+        if cleaned.startswith("postgres://"):
+            return "postgresql://" + cleaned[len("postgres://") :]
+        return cleaned
+    port = port or "5432"
+    pairs = list(parse_qsl(query, keep_blank_values=True))
+    keys = {key.lower() for key, _ in pairs}
+
+    def set_default(key: str, value: str) -> None:
+        nonlocal pairs, keys
+        if key.lower() in keys:
+            return
+        pairs.append((key, value))
+        keys.add(key.lower())
+
+    host_l = host.lower()
+    if is_render_postgres_host(host_l):
+        set_default("sslmode", "require")
+        set_default("gssencmode", "disable")
+        set_default("channel_binding", "disable")
+    elif host_l.endswith(".rlwy.net") or host_l.endswith(".railway.app"):
+        set_default("sslmode", "require")
+    elif host_l.endswith(".railway.internal"):
+        set_default("sslmode", "disable")
+    return _rebuild_postgres_url(host, port, user, password, path, urlencode(pairs))
 
 
 def url_from_pg_env() -> str:
-    host = (os.environ.get("PGHOST") or os.environ.get("PG_HOST") or "").strip()
+    host = (env_lookup("PGHOST", "PG_HOST") or "").strip()
+    if on_render():
+        match = _RENDER_EXTERNAL_HOST.match(host.lower())
+        if match:
+            host = match.group(1)
     if not host or is_loopback_host(host):
         return ""
     user = (os.environ.get("PGUSER") or os.environ.get("POSTGRES_USER") or "postgres").strip() or "postgres"
@@ -208,20 +332,29 @@ def iter_database_urls(explicit: str) -> list[str]:
 
     def add(raw: str) -> None:
         url = normalize_database_url(raw or "")
-        if not url or url in seen or "${{" in url:
+        if not url or "${{" in url:
             return
         host = _hostname(url)
         if not host:
             return
         if on_hosted_platform() and is_loopback_host(host):
             return
-        seen.append(url)
-        out.append(url)
+        ordered: list[str] = []
+        if on_render():
+            internal = normalize_database_url(rewrite_render_external_to_internal(url))
+            if internal and _hostname(internal):
+                ordered.append(internal)
+        if url not in ordered:
+            ordered.append(url)
+        for item in ordered:
+            if item and item not in seen:
+                seen.append(item)
+                out.append(item)
 
     add(explicit)
     add(resolve_database_url(explicit))
     for key in HOSTED_URL_KEYS:
-        add(os.environ.get(key) or "")
+        add(env_lookup(key))
     add(url_from_pg_env())
     add(_discover_hosted_database_url(skip=explicit))
     return out
@@ -238,10 +371,26 @@ def resolve_database_url(explicit: str) -> str:
                 _hostname(raw) or "localhost",
             )
         raw = ""
+    if on_render():
+        render_url = normalize_database_url(env_lookup("RENDER_DATABASE_URL"))
+        if is_remote_postgres_url(render_url):
+            chosen = normalize_database_url(rewrite_render_external_to_internal(render_url))
+            if chosen != raw:
+                log.info("Using RENDER_DATABASE_URL (internal Render hostname).")
+            return chosen
+        if is_remote_postgres_url(raw):
+            rewritten = normalize_database_url(rewrite_render_external_to_internal(raw))
+            if rewritten != raw:
+                log.info(
+                    "Rewriting Render External Database URL %s → %s so TLS is not hairpinned.",
+                    _hostname(raw),
+                    _hostname(rewritten),
+                )
+            return rewritten
     if is_remote_postgres_url(raw):
         return raw
     for key in HOSTED_URL_KEYS:
-        alt = normalize_database_url(os.environ.get(key) or "")
+        alt = normalize_database_url(env_lookup(key))
         if alt != raw and is_remote_postgres_url(alt):
             log.info("Using %s because DATABASE_URL is local, empty, or not a postgres URL.", key)
             return alt
@@ -269,6 +418,23 @@ def conninfo_candidates(database_url: str) -> list[str]:
             out.append(candidate)
 
     host = _hostname(url)
+    render_tls = {"sslmode": "require", "gssencmode": "disable", "channel_binding": "disable"}
+    render_plain = {"sslmode": "disable", "gssencmode": "disable", "channel_binding": "disable"}
+    if is_render_postgres_host(host):
+        # Never sslmode=prefer: libpq starts TLS, Render closes, error is "SSL closed unexpectedly".
+        # Never connect by IP: SNI/hostaddr on 13.x public addresses hairpins from inside Render.
+        if on_render():
+            internal = normalize_database_url(rewrite_render_external_to_internal(url))
+            add(_with_query_params(internal, **render_plain))
+            add(_with_query_params(internal, **render_tls))
+            if internal != url:
+                add(_with_query_params(url, **render_tls))
+        elif is_render_internal_host(host):
+            add(_with_query_params(url, **render_plain))
+            add(_with_query_params(url, **render_tls))
+        else:
+            add(_with_query_params(url, **render_tls))
+        return out
     if host.endswith(".railway.internal"):
         disabled = _set_query_param(url, "sslmode", "disable")
         add(disabled)
@@ -286,13 +452,16 @@ def conninfo_candidates(database_url: str) -> list[str]:
 
 def postgres_tcp_open(database_url: str, timeout: float = 1.0) -> bool:
     """Fail fast when nothing is listening (Windows localhost can hang in psycopg)."""
-    parsed = urlparse(database_url)
-    host = parsed.hostname or "127.0.0.1"
+    host, port, _user, _password, _path, _query = _split_postgres_url(database_url)
+    host = host or "127.0.0.1"
     if host in {"localhost", "::1"}:
         host = "127.0.0.1"
-    port = parsed.port or 5432
     try:
-        with socket.create_connection((host, port), timeout=timeout):
+        port_n = int(port or "5432")
+    except ValueError:
+        port_n = 5432
+    try:
+        with socket.create_connection((host, port_n), timeout=timeout):
             return True
     except OSError:
         return False
@@ -311,7 +480,7 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
             log.warning(
                 "Postgres handshake failed host=%s sslmode=%s (%s).",
                 _hostname(conninfo) or "?",
-                dict(parse_qsl(urlparse(conninfo).query)).get("sslmode", "default"),
+                dict(parse_qsl(_split_postgres_url(conninfo)[5])).get("sslmode", "default"),
                 exc,
             )
     if last_exc is not None:
@@ -371,9 +540,7 @@ def try_postgres(
 
 def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> PostgresRepository:
     """Retry until Postgres accepts connections or the wait budget is spent."""
-    env_url = normalize_database_url(
-        os.environ.get("RENDER_DATABASE_URL") or os.environ.get("DATABASE_URL") or ""
-    )
+    env_url = normalize_database_url(env_lookup("RENDER_DATABASE_URL") or env_lookup("DATABASE_URL") or "")
     cfg.database_url = resolve_database_url(env_url or cfg.database_url)
     host = _hostname(cfg.database_url)
     urls = iter_database_urls(cfg.database_url)
@@ -408,11 +575,16 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
             break
         time.sleep(2.0)
     extra = ""
-    if is_render_internal_host(host) or any(is_render_internal_host(_hostname(item)) for item in urls):
+    ssl_note = any("ssl" in (note or "").lower() and "closed" in (note or "").lower() for note in last_errors)
+    used_external = any("postgres.render.com" in _hostname(item) for item in urls)
+    used_internal = any(is_render_internal_host(_hostname(item)) for item in urls)
+    if ssl_note or (used_external and not used_internal):
+        extra = " " + HOSTED_RENDER_TLS
+    elif used_internal or is_render_internal_host(host):
         extra = (
-            " Internal Render host failed. Copy the External Database URL from the "
-            "Postgres Connect menu (host ends with .render.com), paste it as "
-            "DATABASE_URL with sslmode=require, and confirm API + database share a region."
+            " Internal Render host failed. Confirm discovery-api and discovery-db "
+            "share a region (Singapore) and DATABASE_URL is the Internal Database URL "
+            "(host is dpg-…, no .render.com). Do not paste the External URL on the API."
         )
     elif host.endswith(".railway.internal") or any(
         _hostname(item).endswith(".railway.internal") for item in urls

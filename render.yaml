@@ -34,6 +34,14 @@ services:
         fromDatabase:
           name: discovery-db
           property: connectionString
+      - key: PGHOST
+        fromDatabase:
+          name: discovery-db
+          property: host
+      - key: PGPORT
+        fromDatabase:
+          name: discovery-db
+          property: port
       - key: PGUSER
         fromDatabase:
           name: discovery-db

@@ -294,7 +294,7 @@ Sizing: start with `0.5c-1g` and 5–10 GB disk. 1024-d vectors plus raw/normali
   | `LOCK_PATH`          | `/data/locks`                                                      |
   | `LOCAL_STORE_PATH`   | `/data/local_store.pkl` (must not be the live store)               |
 
-6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. If `store` stays `pending`, the internal URL failed; paste the **External Database URL** as a temporary `DATABASE_URL` and check region match.
+6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. If `store` stays `pending` or logs show `SSL connection has been closed unexpectedly`, the API used the **External** hostname (`*.singapore-postgres.render.com`). That hairpins TLS to a public IP from inside Render. Set `DATABASE_URL` to the **Internal** Database URL (`postgresql://…@dpg-…/discovery`, no `.render.com`) and confirm API + database share a region.
 7. After the first successful deploy, confirm OpenAPI at `https://<api>.onrender.com/docs` (optional; still behind CORS).
 
 First Docker build (CPU torch + Sentence-Transformers) can take 10–20 minutes. That is a **build**, not a hung deploy.
@@ -385,7 +385,7 @@ Copy from `.env.example`. Secrets stay in the host dashboards, never in git.
 
 | Variable             | Production notes                                                |
 | -------------------- | --------------------------------------------------------------- |
-| `DATABASE_URL`       | Internal Render Postgres URL. `sslmode=require` if needed       |
+| `DATABASE_URL`       | **Internal** URL only (`dpg-…`, no `.render.com`). Blueprint also sets `RENDER_DATABASE_URL` + `PGHOST` |
 | `GROQ_API_KEY`       | Generation only. `GROQ_BASE_URL=https://api.groq.com/openai/v1` |
 | `GROQ_MODEL`         | Frozen `openai/gpt-oss-120b`                                    |
 | `GROQ_MODEL_LIGHT`   | Frozen `openai/gpt-oss-20b`                                     |
@@ -512,7 +512,8 @@ BGE is not billed; it is RAM + disk. Groq 429: raise `GROQ_MIN_INTERVAL_SECONDS`
 | Symptom                                                      | Likely cause                                                      | Fix                                                                 |
 | ------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Render deploy healthy, UI empty, `/health` `store=memory`    | `DATABASE_URL` wrong or pg not up at boot                         | Internal URL from Blueprint; restart after Postgres is Available    |
-| `/health` stuck `store=pending`                              | Internal host unreachable (wrong region) or TLS                   | Same region; try External Database URL + `sslmode=require`          |
+| `/health` stuck `store=pending`                              | Internal host unreachable (wrong region) or TLS                   | Same region; Internal URL only (`dpg-…`, no `.render.com`)          |
+| `SSL connection has been closed unexpectedly`                | API used External Postgres URL; TLS hairpin to public IP          | Internal Database URL; delete leftover External `DATABASE_URL`      |
 | `CREATE EXTENSION vector` fails                              | Not Render Postgres, or too-old image                             | Use managed Render Postgres 16+                                     |
 | Health check never passes                                    | Bind `127.0.0.1` or port 8000 instead of `$PORT`                  | Dockerfile CMD in §5.2                                              |
 | `API_SHARED_SECRET is required when binding…`                | Used `src.cli serve` on `0.0.0.0` without secret                  | Set secret                                                          |

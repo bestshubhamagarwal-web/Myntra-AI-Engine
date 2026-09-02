@@ -104,12 +104,23 @@ def pending_store_detail(boot_error: str | None) -> str:
             "from the Render Postgres Connect menu (postgresql://…@dpg-…), "
             f"paste it on the API, redeploy. Last error: {err}"
         )
+    if (
+        "ssl connection has been closed" in lowered
+        or "postgres.render.com" in lowered
+        or "hostaddr" in lowered
+    ):
+        return (
+            "Render closed the Postgres TLS session because the API used the External "
+            "Database URL (public hostname / IP). Set DATABASE_URL to the Internal "
+            "Database URL (postgresql://…@dpg-…/discovery — no .render.com). "
+            f"Last error: {err}"
+        )
     if "dpg-" in lowered and "postgres.render.com" not in lowered:
         return (
-            "Internal Render Postgres host is not reachable from the API (wrong "
-            "region, or TLS). Copy the External Database URL from Connect (host "
-            "ends with .render.com), paste it as DATABASE_URL with sslmode=require, "
-            f"and confirm API + database share a region. Last error: {err}"
+            "Internal Render Postgres host is not reachable from the API. Confirm "
+            "discovery-api and discovery-db share a region, and that DATABASE_URL is "
+            "the Internal Database URL (host is dpg-…, no .render.com). Do not paste "
+            f"the External URL on the API — it hairpins TLS. Last error: {err}"
         )
     if "railway.internal" in lowered:
         return (
