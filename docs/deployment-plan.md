@@ -417,6 +417,7 @@ BGE is RAM + disk on the laptop, not a Vercel line item. Groq 429: raise `GROQ_M
 | Build installs torch / exceeds bundle size                     | `pip install -e .` without `--no-deps`                               | Use `requirements.txt` then `pip install --no-deps -e .`            |
 | Dashboard project builds FastAPI / API project builds Next.js  | Wrong Root Directory                                                 | API = `.` ; dashboard = `web`                                       |
 | API project `Command "npm run build" exited with 1`            | Framework/Build Command still Next.js from `web/package.json`        | Framework **FastAPI**; Build Command Override **Off**; Redeploy     |
+| `This Serverless Function has crashed` on `/health`            | Import-time pickle fallback wrote `data/` (read-only) or `DATABASE_URL` is the docs host `*.neon.tech` | Set a real Neon URL (`ep-….neon.tech`); Redeploy |
 
 
 Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./Runbook.md).
@@ -445,7 +446,7 @@ Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./
 ## 18. In-repo deploy hooks (done)
 
 1. `api/index.py`, repo-root `vercel.json` (FastAPI + Python `buildCommand`), `package.json` no-op `npm run build`, `requirements.txt`, `.python-version` (3.12), `web/vercel.json`.
-2. `REQUIRE_POSTGRES=true` on Vercel makes `connect_store` wait, then fail — never `local_store.pkl`.
+2. `REQUIRE_POSTGRES=true` on Vercel makes `connect_store` wait, then fail — never `local_store.pkl`. Writable paths are `/tmp`. Importing `api/index.py` must not mkdir `data/` or the function crashes (read-only FS).
 3. `create_app(migrate_on_boot=True)` applies SQL after Postgres attaches on each cold start (`schema_migrations` is idempotent).
 4. `src/db/connect.py` treats Neon hosts (`*.neon.tech`, `sslmode=require`) and still understands leftover Railway/Render DSNs.
 5. Writable paths on Vercel default to `/tmp`. Neon wait budget is 20 s on Vercel so compute can wake.

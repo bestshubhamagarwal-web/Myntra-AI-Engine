@@ -110,10 +110,9 @@ def on_railway() -> bool:
 
 
 def on_vercel() -> bool:
-    return bool(
-        (os.environ.get("VERCEL") or "").strip()
-        or (os.environ.get("VERCEL_ENV") or "").strip()
-    )
+    from src.config import running_on_vercel
+
+    return running_on_vercel()
 
 
 def on_hosted_platform() -> bool:
@@ -678,18 +677,31 @@ def is_render_internal_host(host: str) -> bool:
     return h in set(render_private_service_names())
 
 
+def is_placeholder_postgres_host(host: str) -> bool:
+    """Docs samples like *.neon.tech are not real DNS names."""
+    h = (host or "").strip().lower()
+    if not h:
+        return True
+    if "*" in h or h.startswith("<") or h.endswith(">"):
+        return True
+    if h in {"neon.tech", "example.com", "localhost"}:
+        return True
+    return False
+
+
 def is_remote_postgres_url(url: str) -> bool:
     """True when conninfo has a non-loopback host (not ${{…}} placeholders)."""
     cleaned = normalize_database_url(url)
     if not cleaned or "${{" in cleaned or "{{" in cleaned:
         return False
+    host = _hostname(cleaned)
+    if not host or is_placeholder_postgres_host(host) or is_loopback_host(host):
+        return False
     if looks_like_hosted_postgres_dsn(cleaned):
-        host = _hostname(cleaned)
-        return bool(host) and not is_loopback_host(host)
+        return True
     if not cleaned.lower().startswith(("postgres://", "postgresql://")):
         return False
-    host = _hostname(cleaned)
-    return bool(host) and not is_loopback_host(host)
+    return True
 
 
 def _set_query_param(url: str, key: str, value: str) -> str:
@@ -1266,5 +1278,13 @@ def connect_store(cfg: Settings) -> DocumentRepository:
         "Postgres not reachable on DATABASE_URL. Using local file store at %s.",
         cfg.local_store_path,
     )
-    cfg.local_store_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        cfg.local_store_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise PostgresRequiredError(
+            "Cannot create local_store.pkl "
+            f"({cfg.local_store_path}: {exc}). On Vercel the filesystem is "
+            "read-only except /tmp. Set DATABASE_URL to a real Neon host "
+            "(ep-….neon.tech), not the docs placeholder *.neon.tech."
+        ) from exc
     return PersistentMemoryRepository(cfg.local_store_path)

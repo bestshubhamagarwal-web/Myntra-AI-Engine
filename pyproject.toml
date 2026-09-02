@@ -36,7 +36,7 @@ include = ["src*"]
 entrypoint = "api.index:app"
 
 [tool.vercel.scripts]
-build = "python api/vercel_build.py"
+build = "python vercel_build.py"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

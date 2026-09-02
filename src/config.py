@@ -22,25 +22,38 @@ FROZEN_EMBEDDING_DIM = BGE_M3_DIM
 log = logging.getLogger(__name__)
 
 
+def running_on_vercel() -> bool:
+    """True on Vercel Functions. VERCEL=1 is not always set at api/index.py import."""
+    if any(
+        (os.environ.get(key) or "").strip()
+        for key in (
+            "VERCEL",
+            "VERCEL_ENV",
+            "VERCEL_REGION",
+            "VERCEL_URL",
+            "NOW_REGION",
+        )
+    ):
+        return True
+    return Path("/var/task/api/index.py").is_file()
+
+
 def _on_vercel_env() -> bool:
-    return bool(
-        (os.environ.get("VERCEL") or "").strip()
-        or (os.environ.get("VERCEL_ENV") or "").strip()
-    )
+    return running_on_vercel()
 
 
 def apply_vercel_runtime_defaults() -> None:
     """Vercel Functions can write only /tmp. Do not revive laptop paths or pickle store."""
     if not _on_vercel_env():
         return
-    os.environ.setdefault("REQUIRE_POSTGRES", "true")
+    os.environ["REQUIRE_POSTGRES"] = "true"
     os.environ.setdefault("POSTGRES_WAIT_SECONDS", "20")
-    os.environ.setdefault("HF_HOME", "/tmp/models")
-    os.environ.setdefault("RAW_STORE_PATH", "/tmp/raw")
-    os.environ.setdefault("REVIEW_DUMP_PATH", "/tmp/review")
-    os.environ.setdefault("REPORTS_PATH", "/tmp/reports")
-    os.environ.setdefault("LOCK_PATH", "/tmp/locks")
-    os.environ.setdefault("LOCAL_STORE_PATH", "/tmp/local_store.pkl")
+    os.environ["HF_HOME"] = "/tmp/models"
+    os.environ["RAW_STORE_PATH"] = "/tmp/raw"
+    os.environ["REVIEW_DUMP_PATH"] = "/tmp/review"
+    os.environ["REPORTS_PATH"] = "/tmp/reports"
+    os.environ["LOCK_PATH"] = "/tmp/locks"
+    os.environ["LOCAL_STORE_PATH"] = "/tmp/local_store.pkl"
 
 
 class Settings(BaseSettings):
@@ -198,6 +211,18 @@ class Settings(BaseSettings):
             return secret or "dev-hmac-secret"
         return secret
 
+    def apply_vercel_filesystem(self) -> None:
+        """Pin writable paths to /tmp and never fall back to local_store.pkl."""
+        self.hf_home = Path("/tmp/models")
+        self.raw_store_path = Path("/tmp/raw")
+        self.review_dump_path = Path("/tmp/review")
+        self.reports_path = Path("/tmp/reports")
+        self.lock_path = Path("/tmp/locks")
+        self.local_store_path = Path("/tmp/local_store.pkl")
+        self.require_postgres = True
+        if float(self.postgres_wait_seconds) > 20:
+            self.postgres_wait_seconds = 20.0
+
     def ensure_runtime_dirs(self) -> None:
         for path in (
             self.raw_store_path,
@@ -307,5 +332,8 @@ def load_settings() -> Settings:
         if not raw:
             # Do not revive the Settings default (localhost) after dropping a laptop DSN.
             extra["database_url"] = ""
-        return Settings(_env_file=None, **extra)
+        settings = Settings(_env_file=None, **extra)
+        if _on_vercel_env():
+            settings.apply_vercel_filesystem()
+        return settings
     return Settings()

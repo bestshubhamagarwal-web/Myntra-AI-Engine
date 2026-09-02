@@ -54,6 +54,7 @@ def _settings(tmp_path: Path, **overrides) -> Settings:
         local_store_path=tmp_path / "local_store.pkl",
         api_shared_secret="",
         api_host="127.0.0.1",
+        require_postgres=False,
         small_n_threshold=5,
         copilot_max_tool_rounds=2,
         groq_min_interval_seconds=0.0,
@@ -315,6 +316,7 @@ def test_query_api_starts_without_postgres(tmp_path):
 
     settings = _settings(tmp_path)
     settings.database_url = "postgresql://discovery:discovery@127.0.0.1:1/discovery"
+    settings.require_postgres = False
     store = connect_store(settings)
     assert isinstance(store, PersistentMemoryRepository)
     app = create_app(settings=settings)

@@ -47,14 +47,15 @@ def test_vercel_fastapi_entrypoint_and_requirements():
     assert "fastapi" in vercel.lower()
     assert '"services"' not in vercel
     assert '"framework": "fastapi"' in vercel
-    assert "python api/vercel_build.py" in vercel
+    assert "python vercel_build.py" in vercel
     assert "npm" not in vercel.lower()
     ignore = (root / ".vercelignore").read_text(encoding="utf-8")
     assert any(line.strip() == "web" for line in ignore.splitlines())
     pkg = (root / "package.json").read_text(encoding="utf-8")
     assert '"build": "next' not in pkg
     assert "fastapi query api" in pkg.lower()
-    assert (root / "api" / "vercel_build.py").is_file()
+    assert (root / "vercel_build.py").is_file()
+    assert not (root / "api" / "vercel_build.py").exists()
     req = (root / "requirements.txt").read_text(encoding="utf-8").lower()
     packages = "\n".join(
         line for line in req.splitlines() if line.strip() and not line.strip().startswith("#")
@@ -106,6 +107,79 @@ def test_load_settings_on_vercel_does_not_keep_localhost(monkeypatch):
     assert settings.require_postgres is True
     reports = str(settings.reports_path).replace("\\", "/").lower()
     assert reports.endswith("tmp/reports")
+    assert str(settings.local_store_path).replace("\\", "/").endswith("tmp/local_store.pkl")
+
+
+def test_placeholder_neon_host_is_not_a_real_database_url():
+    from src.db.connect import is_placeholder_postgres_host, is_remote_postgres_url
+
+    assert is_placeholder_postgres_host("*.neon.tech")
+    assert not is_remote_postgres_url("postgresql://u:p@*.neon.tech/neondb")
+    assert is_remote_postgres_url("postgresql://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb")
+
+
+def test_running_on_vercel_from_region(monkeypatch):
+    from src.config import running_on_vercel
+
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    monkeypatch.delenv("VERCEL_URL", raising=False)
+    monkeypatch.setenv("VERCEL_REGION", "iad1")
+    assert running_on_vercel() is True
+
+
+def test_connect_store_readonly_pickle_raises(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from src.db import connect as connect_mod
+    from src.db.connect import PostgresRequiredError, connect_store
+
+    monkeypatch.setattr(connect_mod, "try_postgres", lambda cfg: None)
+    settings = Settings(
+        database_url="postgresql://u:p@127.0.0.1:1/discovery",
+        require_postgres=False,
+        local_store_path=tmp_path / "data" / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    original = Path.mkdir
+
+    def boom(self, mode=0o777, parents=False, exist_ok=False):
+        if self == settings.local_store_path.parent:
+            raise OSError(30, "Read-only file system")
+        return original(self, mode=mode, parents=parents, exist_ok=exist_ok)
+
+    monkeypatch.setattr(Path, "mkdir", boom)
+    with pytest.raises(PostgresRequiredError, match="read-only|Cannot create local_store"):
+        connect_store(settings)
+
+
+def test_create_app_on_vercel_does_not_crash_without_postgres(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("RAILWAY_PROJECT_ID", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("REQUIRE_POSTGRES", "true")
+    monkeypatch.setenv("POSTGRES_WAIT_SECONDS", "0")
+    monkeypatch.setenv("HF_HOME", "/tmp/models")
+    monkeypatch.setenv("RAW_STORE_PATH", "/tmp/raw")
+    monkeypatch.setenv("REVIEW_DUMP_PATH", "/tmp/review")
+    monkeypatch.setenv("REPORTS_PATH", "/tmp/reports")
+    monkeypatch.setenv("LOCK_PATH", "/tmp/locks")
+    monkeypatch.setenv("LOCAL_STORE_PATH", "/tmp/local_store.pkl")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@*.neon.tech/neondb")
+    app = create_app(migrate_on_boot=True)
+    client = TestClient(app)
+    health = client.get("/health")
+    assert health.status_code == 200
+    body = health.json()
+    assert body["store"] in {"pending", "postgres"}
+    assert body["status"] in {"starting", "ok"}
 
 
 def test_render_blueprint_injects_postgres_url():

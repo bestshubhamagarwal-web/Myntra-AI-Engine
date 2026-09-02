@@ -30,9 +30,10 @@ from src.api.schemas import (
     ThemesResponse,
     TrendsResponse,
 )
-from src.config import Settings, load_settings
+from src.config import Settings, load_settings, apply_vercel_runtime_defaults
 from src.db.connect import (
     POSTGRES_UNREACHABLE,
+    PostgresRequiredError,
     apply_hosted_database_env,
     connect_store,
     on_hosted_platform,
@@ -110,6 +111,12 @@ def pending_store_detail(boot_error: str | None) -> str:
             "DATABASE_URL still points at localhost. Set DATABASE_URL or POSTGRES_URL "
             "to Neon (*.neon.tech, sslmode=require) on the Vercel API project, "
             f"redeploy. Last error: {err}"
+        )
+    if "*" in err or "placeholder" in lowered:
+        return (
+            "DATABASE_URL is still the docs placeholder (host *.neon.tech). "
+            "Paste the real Neon connection string from the Neon dashboard "
+            f"(ep-….neon.tech), then Redeploy. Last error: {err}"
         )
     if "railway.internal" in lowered:
         return (
@@ -228,15 +235,24 @@ def create_app(
     migrate_on_boot: bool = False,
 ) -> FastAPI:
     cfg = settings or load_settings()
+    if on_vercel():
+        apply_vercel_runtime_defaults()
+        cfg.apply_vercel_filesystem()
     cfg.ensure_runtime_dirs()
-    defer = repo is None and cfg.require_postgres
-    store: DocumentRepository | None
+    defer = repo is None and (cfg.require_postgres or on_vercel())
+    store: DocumentRepository | None = None
+    boot_error: str | None = None
     if repo is not None:
         store = repo
     elif defer:
         store = None
     else:
-        store = connect_store(cfg)
+        try:
+            store = connect_store(cfg)
+        except (OSError, PostgresRequiredError) as exc:
+            store = None
+            boot_error = str(exc)
+            log.warning("store unavailable at import: %s", exc)
 
     app = FastAPI(
         title="Myntra Discovery Engine Query API",
@@ -258,7 +274,7 @@ def create_app(
     app.state.repo = store
     app.state.query = None
     app.state.copilot = None
-    app.state.boot_error = None
+    app.state.boot_error = boot_error
     app.state.boot_lock = threading.Lock()
     boot_kwargs = {
         "app": app,
