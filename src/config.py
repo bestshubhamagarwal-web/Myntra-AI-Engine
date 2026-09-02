@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     lock_path: Path = Path("./data/locks")
     lock_stale_seconds: int = 7200
     local_store_path: Path = Path("./data/local_store.pkl")
-    # Railway/production: never fall back to local_store.pkl when Postgres is down.
+    # Render/production: never fall back to local_store.pkl when Postgres is down.
     require_postgres: bool = False
     postgres_wait_seconds: float = 60.0
 
@@ -189,8 +189,8 @@ class Settings(BaseSettings):
         secret = (self.api_shared_secret or "").strip()
         public = host not in {"127.0.0.1", "localhost", "::1"}
         if public and not secret:
-            # Railway injects PORT. Exiting here means nothing listens and Vercel
-            # sees Railway's 502 "Application failed to respond".
+            # Render injects PORT. Exiting here means nothing listens and Vercel
+            # sees Render's 502 Bad Gateway.
             if (os.environ.get("PORT") or "").strip():
                 return
             raise ValueError(
@@ -200,7 +200,7 @@ class Settings(BaseSettings):
 
 
 def resolve_listen_port(explicit: int | None = None, settings: Settings | None = None) -> int:
-    """Bind port: CLI --port, then platform PORT (Railway), then API_PORT."""
+    """Bind port: CLI --port, then platform PORT (Render), then API_PORT."""
     if explicit is not None:
         return int(explicit)
     raw = (os.environ.get("PORT") or "").strip()

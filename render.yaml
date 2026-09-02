@@ -1,0 +1,69 @@
+# Render Blueprint: FastAPI Query API + Postgres (pgvector).
+# Frontend stays on Vercel (web/). Secrets are prompted in the dashboard.
+# Docs: docs/deployment-plan.md
+
+databases:
+  - name: discovery-db
+    plan: 0.5c-1g
+    postgresMajorVersion: "16"
+    databaseName: discovery
+    user: discovery
+    region: singapore
+    diskSizeGB: 10
+
+services:
+  - type: web
+    name: discovery-api
+    runtime: docker
+    plan: 2c-8g
+    region: singapore
+    healthCheckPath: /health
+    dockerfilePath: ./Dockerfile
+    autoDeployTrigger: commit
+    disk:
+      name: api-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: discovery-db
+          property: connectionString
+      - key: API_HOST
+        value: "0.0.0.0"
+      - key: REQUIRE_POSTGRES
+        value: "true"
+      - key: HF_HOME
+        value: /data/models
+      - key: RAW_STORE_PATH
+        value: /data/raw
+      - key: REVIEW_DUMP_PATH
+        value: /data/review
+      - key: REPORTS_PATH
+        value: /data/reports
+      - key: LOCK_PATH
+        value: /data/locks
+      - key: LOCAL_STORE_PATH
+        value: /data/local_store.pkl
+      - key: GROQ_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_MODEL_LIGHT
+        value: openai/gpt-oss-20b
+      - key: BGE_MODEL_ID
+        value: BAAI/bge-m3
+      - key: EMBEDDING_DIM
+        value: "1024"
+      - key: C_MAX
+        value: "200"
+      - key: S_MAX
+        value: "4"
+      - key: API_CORS_ORIGINS
+        value: http://localhost:3000,http://127.0.0.1:3000
+      - key: API_SHARED_SECRET
+        sync: false
+      - key: AUTHOR_HMAC_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false

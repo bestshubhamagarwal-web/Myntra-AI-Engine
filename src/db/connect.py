@@ -24,27 +24,25 @@ POSTGRES_UNREACHABLE = (
 
 POSTGRES_REQUIRED = (
     "Postgres is required (REQUIRE_POSTGRES=true) but was not reachable. "
-    "Check DATABASE_URL (Railway private URL + pgvector template) and retry. "
-    "Refusing local_store.pkl so the API cannot serve an empty corpus."
+    "Check DATABASE_URL (Render internal URL, or External Database URL for a laptop) "
+    "and retry. Refusing local_store.pkl so the API cannot serve an empty corpus."
 )
 
-RAILWAY_LOCAL_URL = (
-    "DATABASE_URL still points at localhost on Railway. Open the pgvector "
-    "service → Variables, copy DATABASE_URL (starts with postgresql:// and "
-    "contains railway.internal or rlwy.net), paste it on the API service, redeploy. "
-    "Do not paste the laptop .env value."
+HOSTED_LOCAL_URL = (
+    "DATABASE_URL still points at localhost on the hosted API. Open the Postgres "
+    "service → Connect, copy the Internal Database URL (postgresql://…@dpg-…), "
+    "paste it on the API service, redeploy. Do not paste the laptop .env value."
 )
 
-RAILWAY_INVALID_URL = (
+HOSTED_INVALID_URL = (
     "DATABASE_URL is not a real Postgres URL (no hostname). On the API service "
-    "delete the current value, open the database/pgvector service → Variables, "
-    "copy DATABASE_URL (postgresql://postgres:…@….railway.internal:5432/railway "
-    "or ….rlwy.net:…/railway?sslmode=require), paste that exact string, redeploy. "
-    "A typed ${{Postgres.DATABASE_URL}} is ignored unless Railway expands it to postgresql://."
+    "delete the current value and let the Blueprint inject it from discovery-db "
+    "(postgresql://…@dpg-…/discovery), or paste the Internal Database URL from "
+    "the Postgres Connect menu, then redeploy."
 )
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
-RAILWAY_URL_KEYS = (
+HOSTED_URL_KEYS = (
     "DATABASE_PRIVATE_URL",
     "DATABASE_PUBLIC_URL",
     "POSTGRES_PRISMA_URL",
@@ -54,7 +52,14 @@ RAILWAY_URL_KEYS = (
 
 
 class PostgresRequiredError(RuntimeError):
-    """Production/Railway must not fall back to the laptop pickle store."""
+    """Hosted production must not fall back to the laptop pickle store."""
+
+
+def on_render() -> bool:
+    return bool(
+        (os.environ.get("RENDER") or "").strip()
+        or (os.environ.get("RENDER_SERVICE_ID") or "").strip()
+    )
 
 
 def on_railway() -> bool:
@@ -64,12 +69,35 @@ def on_railway() -> bool:
     )
 
 
+def on_hosted_platform() -> bool:
+    return on_render() or on_railway()
+
+
 def _hostname(database_url: str) -> str:
     return (urlparse(database_url).hostname or "").strip().lower()
 
 
 def is_loopback_host(host: str | None) -> bool:
     return (host or "").strip().lower() in LOOPBACK_HOSTS
+
+
+def is_render_postgres_host(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h.endswith(".render.com") or h.startswith("dpg-")
+
+
+def is_railway_postgres_host(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h.endswith(".railway.internal") or h.endswith(".rlwy.net") or h.endswith(".railway.app")
+
+
+def is_hosted_postgres_host(host: str) -> bool:
+    return is_render_postgres_host(host) or is_railway_postgres_host(host)
+
+
+def is_render_internal_host(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h.startswith("dpg-") and "postgres.render.com" not in h
 
 
 def is_remote_postgres_url(url: str) -> bool:
@@ -92,7 +120,7 @@ def _set_query_param(url: str, key: str, value: str) -> str:
 
 
 def normalize_database_url(url: str) -> str:
-    """postgres:// → postgresql://, strip quotes, default sslmode for Railway hosts."""
+    """postgres:// → postgresql://, strip quotes, default sslmode for hosted hosts."""
     cleaned = (url or "").strip().strip('"').strip("'")
     if not cleaned:
         return ""
@@ -102,7 +130,11 @@ def normalize_database_url(url: str) -> str:
     has_ssl = any(k.lower() == "sslmode" for k, _ in parse_qsl(parsed.query, keep_blank_values=True))
     host = (parsed.hostname or "").lower()
     if not has_ssl:
-        if host.endswith(".rlwy.net") or host.endswith(".railway.app"):
+        if (
+            host.endswith(".rlwy.net")
+            or host.endswith(".railway.app")
+            or is_render_postgres_host(host)
+        ):
             cleaned = _set_query_param(cleaned, "sslmode", "require")
         elif host.endswith(".railway.internal"):
             cleaned = _set_query_param(cleaned, "sslmode", "disable")
@@ -117,31 +149,33 @@ def url_from_pg_env() -> str:
     password = os.environ.get("PGPASSWORD") or os.environ.get("POSTGRES_PASSWORD") or ""
     port = (os.environ.get("PGPORT") or os.environ.get("POSTGRES_PORT") or "5432").strip() or "5432"
     dbname = (
-        os.environ.get("PGDATABASE") or os.environ.get("POSTGRES_DB") or os.environ.get("POSTGRES_DATABASE") or "railway"
-    ).strip() or "railway"
+        os.environ.get("PGDATABASE")
+        or os.environ.get("POSTGRES_DB")
+        or os.environ.get("POSTGRES_DATABASE")
+        or "discovery"
+    ).strip() or "discovery"
     hostport = f"[{host}]:{port}" if ":" in host and not host.startswith("[") else f"{host}:{port}"
     return normalize_database_url(
         f"postgresql://{quote_plus(user)}:{quote_plus(password)}@{hostport}/{quote_plus(dbname)}"
     )
 
 
-def _discover_railway_database_url(skip: str = "") -> str:
-    """Last resort: any env value that looks like a Railway Postgres URL."""
+def _discover_hosted_database_url(skip: str = "") -> str:
+    """Last resort: any env value that looks like a Render or Railway Postgres URL."""
     skip_n = normalize_database_url(skip)
     for key, value in os.environ.items():
         if key.upper().startswith("NIXPACKS") or key.upper() in {"PATH", "PYTHONPATH"}:
             continue
         alt = normalize_database_url(value or "")
         if alt and alt != skip_n and is_remote_postgres_url(alt):
-            host = _hostname(alt)
-            if host.endswith(".railway.internal") or host.endswith(".rlwy.net") or host.endswith(".railway.app"):
+            if is_hosted_postgres_host(_hostname(alt)):
                 log.info("Using Postgres URL from %s because DATABASE_URL is not connectable.", key)
                 return alt
     return ""
 
 
 def rewrite_to_ipv6_literal(url: str) -> str:
-    """Railway private DNS is often IPv6-only; libpq may try a dead IPv4 first."""
+    """Some private DNS is IPv6-only; libpq may try a dead IPv4 first."""
     parsed = urlparse(url)
     host = parsed.hostname
     port = parsed.port or 5432
@@ -159,7 +193,7 @@ def rewrite_to_ipv6_literal(url: str) -> str:
     auth = quote_plus(user, safe="")
     if password is not None:
         auth += ":" + quote_plus(password, safe="")
-    path = parsed.path or "/railway"
+    path = parsed.path or "/discovery"
     rebuilt = f"postgresql://{auth}@[{ip}]:{port}{path}"
     if parsed.query:
         rebuilt += f"?{parsed.query}"
@@ -167,7 +201,7 @@ def rewrite_to_ipv6_literal(url: str) -> str:
 
 
 def iter_database_urls(explicit: str) -> list[str]:
-    """Private Railway URL first, then public proxy, then other injected URLs."""
+    """Explicit URL first, then public/external fallbacks, then other injected URLs."""
     seen: list[str] = []
     out: list[str] = []
 
@@ -191,16 +225,16 @@ def iter_database_urls(explicit: str) -> list[str]:
     ):
         add(os.environ.get(key) or "")
     add(url_from_pg_env())
-    add(_discover_railway_database_url(skip=explicit))
+    add(_discover_hosted_database_url(skip=explicit))
     return out
 
 
 def resolve_database_url(explicit: str) -> str:
-    """Prefer a reachable Railway URL when DATABASE_URL is local, empty, or a ${{…}} stub."""
+    """Prefer a reachable hosted URL when DATABASE_URL is local, empty, or a stub."""
     raw = normalize_database_url(explicit)
     if is_remote_postgres_url(raw):
         return raw
-    for key in RAILWAY_URL_KEYS:
+    for key in HOSTED_URL_KEYS:
         alt = normalize_database_url(os.environ.get(key) or "")
         if alt != raw and is_remote_postgres_url(alt):
             log.info("Using %s because DATABASE_URL is local, empty, or not a postgres URL.", key)
@@ -209,14 +243,14 @@ def resolve_database_url(explicit: str) -> str:
     if pg_url:
         log.info("Using PGHOST/PGUSER environment for Postgres.")
         return pg_url
-    discovered = _discover_railway_database_url(skip=raw)
+    discovered = _discover_hosted_database_url(skip=raw)
     if discovered:
         return discovered
     return raw
 
 
 def conninfo_candidates(database_url: str) -> list[str]:
-    """Try TLS modes that Railway public vs private hosts actually accept."""
+    """Try TLS modes that hosted public vs private hosts actually accept."""
     url = normalize_database_url(database_url)
     if not url:
         return []
@@ -280,7 +314,7 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
 
 
 def postgres_connect(database_url: str, **kwargs):
-    """Open a psycopg connection, retrying Railway TLS modes."""
+    """Open a psycopg connection, retrying hosted TLS modes."""
     last_exc: Exception | None = None
     timeout = int(kwargs.get("connect_timeout") or 8)
     for conninfo in conninfo_candidates(database_url):
@@ -310,7 +344,7 @@ def try_postgres(
         if not host or "${{" in url:
             continue
         # TCP pre-check is only for loopback: Windows psycopg can hang on localhost.
-        # Railway private DNS is IPv6; a Python TCP probe there false-negatives.
+        # Hosted private DNS can be IPv6; a Python TCP probe there false-negatives.
         if is_loopback_host(host) and not postgres_tcp_open(url, timeout=tcp_timeout):
             continue
         try:
@@ -334,14 +368,14 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
     cfg.database_url = resolve_database_url(cfg.database_url)
     host = _hostname(cfg.database_url)
     urls = iter_database_urls(cfg.database_url)
-    if cfg.require_postgres and on_railway():
+    if cfg.require_postgres and on_hosted_platform():
         if not urls:
             if not host or "${{" in (cfg.database_url or ""):
-                raise PostgresRequiredError(RAILWAY_INVALID_URL)
+                raise PostgresRequiredError(HOSTED_INVALID_URL)
             if is_loopback_host(host):
-                raise PostgresRequiredError(RAILWAY_LOCAL_URL)
+                raise PostgresRequiredError(HOSTED_LOCAL_URL)
         elif all(is_loopback_host(_hostname(item)) for item in urls):
-            raise PostgresRequiredError(RAILWAY_LOCAL_URL)
+            raise PostgresRequiredError(HOSTED_LOCAL_URL)
     budget = cfg.postgres_wait_seconds if total_seconds is None else total_seconds
     deadline = time.monotonic() + max(0.0, float(budget))
     tcp_timeout = 3.0 if cfg.require_postgres else 1.0
@@ -367,7 +401,13 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
             break
         time.sleep(2.0)
     extra = ""
-    if host.endswith(".railway.internal") or any(
+    if is_render_internal_host(host) or any(is_render_internal_host(_hostname(item)) for item in urls):
+        extra = (
+            " Internal Render host failed. Copy the External Database URL from the "
+            "Postgres Connect menu (host ends with .render.com), paste it as "
+            "DATABASE_URL with sslmode=require, and confirm API + database share a region."
+        )
+    elif host.endswith(".railway.internal") or any(
         _hostname(item).endswith(".railway.internal") for item in urls
     ):
         extra = (
@@ -380,7 +420,7 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
 def connect_store(cfg: Settings) -> DocumentRepository:
     """Postgres when reachable; otherwise `local_store_path` so ingest and the API share data.
 
-    When `require_postgres` is true (Railway), wait then fail hard — never pickle.
+    When `require_postgres` is true (Render), wait then fail hard — never pickle.
     """
     cfg.database_url = resolve_database_url(cfg.database_url)
     if cfg.require_postgres:

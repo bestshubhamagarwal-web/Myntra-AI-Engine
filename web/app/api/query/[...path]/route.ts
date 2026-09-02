@@ -47,7 +47,7 @@ async function proxy(req: NextRequest, pathParts: string[]): Promise<NextRespons
   }
 
   let lastError =
-    "Query API unreachable. On Vercel set API_BASE_URL to the Railway public HTTPS URL.";
+    "Query API unreachable. On Vercel set API_BASE_URL to the Render public HTTPS URL.";
   const attempts = req.method === "GET" || req.method === "HEAD" ? 3 : 1;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
@@ -61,7 +61,7 @@ async function proxy(req: NextRequest, pathParts: string[]): Promise<NextRespons
           return NextResponse.json(
             {
               detail:
-                "Railway API is not reachable (502). Set the public-domain port to the same value as Variables → PORT (often 8080, not 443). The API must be the web service, not Postgres.",
+                "Render API is not reachable (502). Set API_BASE_URL to https://<api>.onrender.com (the web service, not the Postgres host). Confirm the API is live and /health returns store=postgres.",
             },
             { status: 502 },
           );
@@ -77,7 +77,7 @@ async function proxy(req: NextRequest, pathParts: string[]): Promise<NextRespons
       const name = error instanceof Error ? error.name : "";
       const message = error instanceof Error ? error.message : String(error);
       if (name === "AbortError" || name === "TimeoutError") {
-        lastError = `Query API timed out talking to ${target.origin}. If Railway just deployed, retry.`;
+        lastError = `Query API timed out talking to ${target.origin}. If Render just deployed, retry.`;
         if (attempt === attempts - 1) {
           return NextResponse.json({ detail: lastError }, { status: 504 });
         }

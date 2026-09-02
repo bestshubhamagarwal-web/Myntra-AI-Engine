@@ -1,5 +1,5 @@
 /**
- * Resolve the Railway Query API origin for the Vercel/Next.js server proxy.
+ * Resolve the Render Query API origin for the Vercel/Next.js server proxy.
  * Never expose this URL to the browser (no NEXT_PUBLIC_ required).
  */
 
@@ -26,19 +26,29 @@ export function resolveBackendBase(): { url: string; error?: string } {
     return {
       url,
       error:
-        "API_BASE_URL is missing or points at localhost. In Vercel → Settings → Environment Variables set API_BASE_URL to the Railway public HTTPS origin (https://<service>.up.railway.app) and API_SHARED_SECRET to the same value as Railway, then Redeploy.",
+        "API_BASE_URL is missing or points at localhost. In Vercel → Settings → Environment Variables set API_BASE_URL to the Render public HTTPS origin (https://<service>.onrender.com) and API_SHARED_SECRET to the same value as Render, then Redeploy.",
     };
   }
   if (/\.railway\.internal(?::|\/|$)/i.test(url)) {
     return {
       url,
       error:
-        "API_BASE_URL uses Railway private networking. Vercel cannot reach *.railway.internal. Use the public https://<service>.up.railway.app URL.",
+        "API_BASE_URL uses a private network hostname. Vercel cannot reach it. Use the public https://<service>.onrender.com URL.",
+    };
+  }
+  if (/dpg-[a-z0-9-]+/i.test(url) || /\.postgres\.render\.com/i.test(url)) {
+    return {
+      url,
+      error:
+        "API_BASE_URL points at Render Postgres, not the API web service. Use https://<api>.onrender.com (no path).",
     };
   }
   try {
     const parsed = new URL(url);
-    if (parsed.hostname.endsWith("up.railway.app") && parsed.protocol === "http:") {
+    if (
+      (parsed.hostname.endsWith("onrender.com") || parsed.hostname.endsWith("up.railway.app")) &&
+      parsed.protocol === "http:"
+    ) {
       url = `https://${parsed.host}`;
     }
   } catch {

@@ -34,7 +34,7 @@ def test_ev_0_01_layout_paths_exist():
         "web/package.json",
         "web/app/page.tsx",
         "Dockerfile",
-        "railway.toml",
+        "render.yaml",
         "docs/deployment-plan.md",
         "web/vercel.json",
     ]

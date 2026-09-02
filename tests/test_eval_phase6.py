@@ -44,8 +44,8 @@ def test_vercel_proxy_rejects_localhost_on_vercel() -> None:
     backend = (WEB / "lib" / "backend.ts").read_text(encoding="utf-8")
     route = (WEB / "app" / "api" / "query" / "[...path]" / "route.ts").read_text(encoding="utf-8")
     assert "isVercelRuntime" in backend
-    assert "up.railway.app" in backend
-    assert "railway.internal" in backend
+    assert "onrender.com" in backend
+    assert "dpg-" in backend
     assert "ipv4first" in route
     assert "resolveBackendBase" in route
     api = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")

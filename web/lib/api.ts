@@ -45,9 +45,8 @@ function errorMessageFromBody(payload: unknown): string {
   if (typeof body.message === "string" && body.message.trim()) {
     if (/application failed to respond/i.test(body.message)) {
       return (
-        "Railway API is not reachable (502). The public-domain port must match " +
-        "Variables → PORT on the API service (often 8080, not 443 or 5432), and " +
-        "the container must be running."
+        "Render API is not reachable (502). Set API_BASE_URL to https://<api>.onrender.com " +
+        "(the web service, not Postgres), and confirm /health returns store=postgres."
       );
     }
     return body.message;

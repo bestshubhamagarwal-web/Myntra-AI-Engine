@@ -1,4 +1,4 @@
-"""Railway/Vercel deploy helpers (docs/deployment-plan.md)."""
+"""Render/Vercel deploy helpers (docs/deployment-plan.md)."""
 
 from __future__ import annotations
 
@@ -35,8 +35,14 @@ def test_resolve_listen_port_rejects_non_integer_platform_port(monkeypatch):
         resolve_listen_port(None, Settings(author_hmac_secret="deploy-hmac"))
 
 
-def test_normalize_database_url_rewrites_scheme_and_railway_ssl():
+def test_normalize_database_url_rewrites_scheme_and_hosted_ssl():
     assert normalize_database_url("postgres://u:p@h:5432/db").startswith("postgresql://")
+    render_ext = normalize_database_url(
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
+    )
+    assert "sslmode=require" in render_ext
+    render_int = normalize_database_url("postgresql://u:p@dpg-abc123-a:5432/discovery")
+    assert "sslmode=require" in render_int
     public = normalize_database_url("postgresql://u:p@turn.proxy.rlwy.net:1234/railway")
     assert "sslmode=require" in public
     internal = normalize_database_url("postgresql://u:p@postgres.railway.internal:5432/railway")
@@ -48,26 +54,26 @@ def test_normalize_database_url_rewrites_scheme_and_railway_ssl():
 def test_resolve_database_url_prefers_private_when_local(monkeypatch):
     monkeypatch.setenv(
         "DATABASE_PRIVATE_URL",
-        "postgresql://u:p@postgres.railway.internal:5432/railway",
+        "postgresql://u:p@dpg-abc123-a:5432/discovery",
     )
     url = resolve_database_url("postgresql://discovery:discovery@localhost:5432/discovery")
-    assert "railway.internal" in url
-    assert "sslmode=disable" in url
+    assert "dpg-abc123-a" in url
+    assert "sslmode=require" in url
 
 
 def test_resolve_database_url_ignores_uninterpolated_reference(monkeypatch):
     monkeypatch.setenv(
         "DATABASE_PRIVATE_URL",
-        "postgresql://u:p@postgres.railway.internal:5432/railway",
+        "postgresql://u:p@dpg-abc123-a:5432/discovery",
     )
     url = resolve_database_url("${{Postgres.DATABASE_URL}}")
-    assert "railway.internal" in url
+    assert "dpg-abc123-a" in url
     url = resolve_database_url("")
-    assert "railway.internal" in url
+    assert "dpg-abc123-a" in url
 
 
-def test_wait_for_postgres_rejects_localhost_on_railway(monkeypatch, tmp_path):
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+def test_wait_for_postgres_rejects_localhost_on_render(monkeypatch, tmp_path):
+    monkeypatch.setenv("RENDER", "true")
     for key in (
         "DATABASE_PRIVATE_URL",
         "DATABASE_PUBLIC_URL",
@@ -89,8 +95,8 @@ def test_wait_for_postgres_rejects_localhost_on_railway(monkeypatch, tmp_path):
         wait_for_postgres(settings)
 
 
-def test_wait_for_postgres_rejects_placeholder_on_railway(monkeypatch, tmp_path):
-    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+def test_wait_for_postgres_rejects_placeholder_on_render(monkeypatch, tmp_path):
+    monkeypatch.setenv("RENDER", "true")
     for key in (
         "DATABASE_PRIVATE_URL",
         "DATABASE_PUBLIC_URL",
@@ -127,7 +133,7 @@ def test_try_postgres_does_not_tcp_probe_remote_hosts(monkeypatch, tmp_path):
         lambda url, connect_timeout=8: url,
     )
     settings = Settings(
-        database_url="postgresql://u:p@postgres.railway.internal:5432/railway",
+        database_url="postgresql://u:p@dpg-abc123-a:5432/discovery",
         require_postgres=True,
         local_store_path=tmp_path / "local_store.pkl",
         author_hmac_secret="deploy-hmac",
@@ -136,24 +142,24 @@ def test_try_postgres_does_not_tcp_probe_remote_hosts(monkeypatch, tmp_path):
     repo = connect_mod.try_postgres(settings)
     assert repo is not None
     assert probed == []
-    assert "railway.internal" in repo.database_url
+    assert "dpg-abc123-a" in repo.database_url
 
 
 def test_try_postgres_falls_back_to_public_url(monkeypatch, tmp_path):
     from src.db import connect as connect_mod
 
     def fake_handshake(url, connect_timeout=8):
-        if "rlwy.net" in url:
+        if "postgres.render.com" in url:
             return url
         raise RuntimeError("private network failed")
 
     monkeypatch.setenv(
         "DATABASE_PUBLIC_URL",
-        "postgresql://u:p@turn.proxy.rlwy.net:1234/railway",
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery",
     )
     monkeypatch.setattr(connect_mod, "handshake_database_url", fake_handshake)
     settings = Settings(
-        database_url="postgresql://u:p@postgres.railway.internal:5432/railway",
+        database_url="postgresql://u:p@dpg-abc123-a:5432/discovery",
         require_postgres=True,
         local_store_path=tmp_path / "local_store.pkl",
         author_hmac_secret="deploy-hmac",
@@ -161,7 +167,7 @@ def test_try_postgres_falls_back_to_public_url(monkeypatch, tmp_path):
     )
     repo = connect_mod.try_postgres(settings)
     assert repo is not None
-    assert "rlwy.net" in repo.database_url
+    assert "postgres.render.com" in repo.database_url
 
 
 def test_require_postgres_does_not_fall_back_to_pickle(tmp_path):
@@ -197,17 +203,15 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     assert "pgvector" in vector.lower()
     reachability = pending_store_detail(
         "Postgres is required (REQUIRE_POSTGRES=true) but was not reachable. "
-        "Check DATABASE_URL (Railway private URL + pgvector template) and retry. "
-        "Last check: not listening or handshake failed (host=unknown)."
+        "Check DATABASE_URL (Render internal URL, or External Database URL for a laptop) "
+        "and retry. Last check: not listening or handshake failed (host=unknown)."
     )
     assert "Migrations need pgvector" not in reachability
-    assert "not a real postgres" in reachability.lower() or "copy DATABASE_URL" in reachability
+    assert "not a real postgres" in reachability.lower() or "Internal Database URL" in reachability
     local = pending_store_detail("could not connect to server at localhost")
     assert "localhost" in local.lower()
-    private = pending_store_detail(
-        "handshake failed (host=postgres.railway.internal)"
-    )
-    assert "DATABASE_PUBLIC_URL" in private or "rlwy.net" in private
+    private = pending_store_detail("handshake failed (host=dpg-abc123-a)")
+    assert "External Database URL" in private or "render.com" in private
 
 
 def test_require_postgres_health_listens_before_db(tmp_path):

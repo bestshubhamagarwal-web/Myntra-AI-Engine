@@ -29,6 +29,6 @@ RUN pip install --upgrade pip \
 
 EXPOSE 8000
 
-# Railway injects PORT. --migrate waits for pgvector then applies SQL.
+# Render injects PORT. --migrate waits for pgvector then applies SQL.
 # API_SHARED_SECRET is required because this binds 0.0.0.0.
 CMD ["sh", "-c", "python -m src.cli serve --migrate --host 0.0.0.0"]

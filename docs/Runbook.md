@@ -121,7 +121,7 @@ Bind stays `127.0.0.1` by default. If you expose the API:
 2. `python -m src.cli serve --host 0.0.0.0` refuses to start without the secret.
 3. The Next.js app sends `X-API-Key`. Prototype auth is this shared secret, not SSO.
 
-Railway image (`Dockerfile`) binds `0.0.0.0`, honors `PORT`, runs `serve --migrate`, and sets `REQUIRE_POSTGRES=true` so a down database cannot serve `local_store.pkl`. See [deployment-plan.md](./deployment-plan.md).
+Render image (`Dockerfile`) binds `0.0.0.0`, honors `PORT`, runs `serve --migrate`, and sets `REQUIRE_POSTGRES=true` so a down database cannot serve `local_store.pkl`. See [deployment-plan.md](./deployment-plan.md).
 
 ---
 

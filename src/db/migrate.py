@@ -58,9 +58,9 @@ def apply_migrations(database_url: str) -> list[str]:
         text = str(exc).lower()
         if "vector" in text or "extension" in text:
             raise RuntimeError(
-                "CREATE EXTENSION vector failed. Railway's default Postgres image "
-                "does not include pgvector. Deploy the pgvector template and set "
-                f"DATABASE_URL to ${{Postgres.DATABASE_URL}}. Original error: {exc}"
+                "CREATE EXTENSION vector failed. Use Render Postgres (pgvector is "
+                "supported there) and set DATABASE_URL to the Internal Database URL. "
+                f"Original error: {exc}"
             ) from exc
         raise
     return applied

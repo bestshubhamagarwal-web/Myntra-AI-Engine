@@ -950,7 +950,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument(
         "--migrate",
         action="store_true",
-        help="Apply SQL migrations before serving (Railway boot)",
+        help="Apply SQL migrations before serving (Render boot)",
     )
     serve_cmd.set_defaults(func=cmd_serve)
 
