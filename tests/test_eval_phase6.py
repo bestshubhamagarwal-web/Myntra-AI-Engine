@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -65,8 +66,8 @@ def test_vercel_proxy_rejects_localhost_on_vercel() -> None:
 
 
 def test_ev_6_19_nextjs_not_streamlit() -> None:
-    package = (WEB / "package.json").read_text(encoding="utf-8")
-    assert '"next"' in package
+    package = json.loads((WEB / "package.json").read_text(encoding="utf-8"))
+    assert "next" in package.get("dependencies", {})
     assert (WEB / "app").is_dir()
     blob = "\n".join(p.read_text(encoding="utf-8") for p in _iter_web_ts())
     assert "streamlit" not in blob.lower()

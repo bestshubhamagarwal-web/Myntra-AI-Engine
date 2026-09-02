@@ -32,6 +32,7 @@ def test_ev_0_01_layout_paths_exist():
         "prompts/copilot_system.md",
         "prompts/theme_label.md",
         "web/package.json",
+        "web/.vercelignore",
         "web/app/page.tsx",
         "api/index.py",
         "vercel.json",
@@ -41,6 +42,7 @@ def test_ev_0_01_layout_paths_exist():
         "render.yaml",
         "docs/deployment-plan.md",
         "web/vercel.json",
+        "scripts/vercel_install.py",
     ]
     missing = [rel for rel in required if not (REPO / rel).exists()]
     assert missing == []

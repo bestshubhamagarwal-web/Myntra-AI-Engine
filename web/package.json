@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.6.0",
   "description": "Phase 6 Next.js product UI. Numbers come from the Phase 5 Query API only.",
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -12,7 +15,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
     "clsx": "^2.1.1",
-    "next": "^15.0.0",
+    "next": "15.5.25",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.13.3"

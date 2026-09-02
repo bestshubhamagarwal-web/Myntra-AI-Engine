@@ -115,7 +115,7 @@ Play Store / public Reddit / Nitter-style hosts often **403/429 from datacenter 
 
 Vercel’s Python runtime is **3.12** (also 3.13 / 3.14). Repo `.python-version` is `3.12`. Local and Docker (`python:3.11-slim` in the leftover `Dockerfile`) may stay on 3.11; `requires-python = ">=3.11"`.
 
-Do **not** `pip install -e .` with default extras on Vercel — `pyproject.toml` still lists Sentence-Transformers for laptop work. The API project `installCommand` is `pip install -r requirements.txt && pip install --no-deps -e .`.
+Do **not** `pip install -e .` with default extras on Vercel — `pyproject.toml` still lists Sentence-Transformers for laptop work. The API project `installCommand` is `python scripts/vercel_install.py` (pip with `--break-system-packages`). The dashboard project must **not** use that command.
 
 ---
 
@@ -156,11 +156,12 @@ These are in git.
 | File | Role |
 | ---- | ---- |
 | `api/index.py` | Exports FastAPI `app = create_app(migrate_on_boot=True)` |
-| `vercel.json` | Framework `fastapi`, Python `buildCommand`, `maxDuration` 120, excludes `web/` |
+| `vercel.json` | Framework `fastapi`, `python scripts/vercel_install.py`, Python `buildCommand`, `maxDuration` 120, excludes `web/` |
+| `scripts/vercel_install.py` | FastAPI pip install; uses `npm` if cwd is the Next.js app so a leaked dashboard install does not hit PEP 668 |
 | `requirements.txt` | Query API only (no torch) |
 | `.python-version` | `3.12` |
 | `pyproject.toml` `[tool.vercel]` | `entrypoint = "api.index:app"` |
-| `.vercelignore` | Drops `web/`, `tests/`, `docs/`, `data/` from the API bundle |
+| `.vercelignore` | Drops `tests/`, `docs/`, `data/` from the API upload. Do **not** list `web/` — the dashboard project needs that folder |
 | `package.json` | No-op `npm run build` so a leftover Next.js Build Command does not fail |
 
 Vercel detects FastAPI from `api/index.py` + `fastapi` in `requirements.txt`. Every request hits that single function (Fluid compute).
@@ -169,7 +170,7 @@ Vercel detects FastAPI from `api/index.py` + `fastapi` in `requirements.txt`. Ev
 
 ### 5.2 Next.js on Vercel (`web/`)
 
-Framework preset **Next.js**, **Root Directory = `web`**. `web/package.json` already has `build` / `start`. The proxy route is `force-dynamic` with `maxDuration = 120`.
+Framework preset **Next.js**, **Root Directory = `web`**. `web/package.json` lists `next` in `dependencies`. Install is `npm ci` only — never pip. `web/.vercelignore` exists so Vercel does not apply the API project's ignore list (which would hide this app). The proxy route is `force-dynamic` with `maxDuration = 120`.
 
 ### 5.3 Optional Docker
 
@@ -198,7 +199,7 @@ Sizing: Neon free / launch is enough to start. 1024-d vectors plus raw/normalize
 1. [vercel.com](https://vercel.com) → **Add New → Project** → [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine).
 2. **Root Directory:** `.` (leave the repository root; do **not** set `web`).
 3. Framework preset: **FastAPI**. If the dashboard still says Next.js, change it — the repo also contains `web/`, so Vercel may have auto-detected the dashboard and set Build Command to `npm run build`.
-4. **Build Command Override: Off.** `vercel.json` already sets `python api/vercel_build.py`. If Override is On with `npm run build`, the API project fails because Next.js lives in `web/`, not the repo root. Install command should match `vercel.json`: `pip install -r requirements.txt && pip install --no-deps -e .`
+4. **Build Command Override: Off.** `vercel.json` already sets `python vercel_build.py`. If Override is On with `npm run build`, the API project fails because Next.js lives in `web/`, not the repo root. Install Command Override **Off** (uses `python scripts/vercel_install.py`), or the dashboard Next.js project will inherit pip and fail with `externally-managed-environment`.
 5. Environment variables (Production + Preview):
 
 
@@ -266,7 +267,7 @@ Existing wrappers: `ops/cron/discovery.crontab`, `ops/windows/Register-PipelineT
 
 1. [vercel.com](https://vercel.com) → **Add New → Project** → same GitHub repo.
 2. **Root Directory:** `web` (Edit, not the repo root).
-3. Framework preset: Next.js. Build `npm run build`, output default.
+3. Framework preset: Next.js. **Install Command Override: Off** (`npm ci`). **Build Command Override: Off** (`npm run build`). If Install is still `pip install …`, the Node image raises `externally-managed-environment`.
 4. Environment variables (Production + Preview):
 
   | Name                | Value                                                    | Exposed to browser?        |
@@ -416,6 +417,8 @@ BGE is RAM + disk on the laptop, not a Vercel line item. Groq 429: raise `GROQ_M
 | `API_BASE_URL` error about `neon.tech` / `rlwy.net`            | Pasted the database URL into the dashboard project                   | Use the **FastAPI** `https://<api>.vercel.app`                      |
 | Build installs torch / exceeds bundle size                     | `pip install -e .` without `--no-deps`                               | Use `requirements.txt` then `pip install --no-deps -e .`            |
 | Dashboard project builds FastAPI / API project builds Next.js  | Wrong Root Directory                                                 | API = `.` ; dashboard = `web`                                       |
+| `No Next.js version detected` on the dashboard project         | Root Directory is `.` (reads the API `package.json`) or repo-root `.vercelignore` hid `web/` | Root Directory **`web`**; Framework **Next.js**; Redeploy after this repo change |
+| `externally-managed-environment` on the dashboard project      | Frontend is running the API `pip install` on Vercel’s Node image (PEP 668) | Root Directory **`web`**; Install Command Override **Off**; Redeploy |
 | API project `Command "npm run build" exited with 1`            | Framework/Build Command still Next.js from `web/package.json`        | Framework **FastAPI**; Build Command Override **Off**; Redeploy     |
 | `This Serverless Function has crashed` on `/health`            | Import-time pickle fallback wrote `data/` (read-only) or `DATABASE_URL` is the docs host `*.neon.tech` | Set a real Neon URL (`ep-….neon.tech`); Redeploy |
 

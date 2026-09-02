@@ -1,5 +1,6 @@
 """Railway/Vercel deploy helpers (docs/deployment-plan.md)."""
 
+import json
 import os
 from pathlib import Path
 
@@ -41,6 +42,7 @@ def test_vercel_fastapi_entrypoint_and_requirements():
     assert "create_app" in entry
     assert "app =" in entry
     assert "migrate_on_boot" in entry
+    assert "apply_vercel_runtime_defaults" in entry
     vercel = (root / "vercel.json").read_text(encoding="utf-8")
     assert "api/index.py" in vercel
     assert "maxDuration" in vercel
@@ -48,9 +50,21 @@ def test_vercel_fastapi_entrypoint_and_requirements():
     assert '"services"' not in vercel
     assert '"framework": "fastapi"' in vercel
     assert "python vercel_build.py" in vercel
+    assert "python scripts/vercel_install.py" in vercel
     assert "npm" not in vercel.lower()
+    assert "pip install" not in vercel.lower()
     ignore = (root / ".vercelignore").read_text(encoding="utf-8")
-    assert any(line.strip() == "web" for line in ignore.splitlines())
+    ignored = {line.strip() for line in ignore.splitlines() if line.strip() and not line.strip().startswith("#")}
+    assert "web" not in ignored
+    web_ignore = (root / "web" / ".vercelignore").read_text(encoding="utf-8")
+    assert "takes precedence" in web_ignore
+    web_pkg = json.loads((root / "web" / "package.json").read_text(encoding="utf-8"))
+    assert "next" in web_pkg.get("dependencies", {})
+    web_vercel = (root / "web" / "vercel.json").read_text(encoding="utf-8")
+    assert '"framework": "nextjs"' in web_vercel
+    assert "npm ci" in web_vercel
+    assert "pip" not in web_vercel.lower()
+    assert (root / "scripts" / "vercel_install.py").is_file()
     pkg = (root / "package.json").read_text(encoding="utf-8")
     assert '"build": "next' not in pkg
     assert "fastapi query api" in pkg.lower()
@@ -128,6 +142,17 @@ def test_running_on_vercel_from_region(monkeypatch):
     assert running_on_vercel() is True
 
 
+def test_running_on_vercel_from_lambda_task_root(monkeypatch):
+    from src.config import running_on_vercel
+
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    monkeypatch.delenv("VERCEL_URL", raising=False)
+    monkeypatch.delenv("VERCEL_REGION", raising=False)
+    monkeypatch.setenv("LAMBDA_TASK_ROOT", "/var/task")
+    assert running_on_vercel() is True
+
+
 def test_connect_store_readonly_pickle_raises(monkeypatch, tmp_path):
     from pathlib import Path
 
@@ -180,6 +205,109 @@ def test_create_app_on_vercel_does_not_crash_without_postgres(monkeypatch):
     body = health.json()
     assert body["store"] in {"pending", "postgres"}
     assert body["status"] in {"starting", "ok"}
+
+
+def test_create_app_on_vercel_does_not_connect_store_at_import(monkeypatch):
+    from src.api.app import create_app
+    from src.db import connect as connect_mod
+
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("RAILWAY_PROJECT_ID", raising=False)
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    monkeypatch.delenv("VERCEL_URL", raising=False)
+    monkeypatch.delenv("VERCEL_REGION", raising=False)
+    monkeypatch.setenv("LAMBDA_TASK_ROOT", "/var/task")
+    monkeypatch.setenv("POSTGRES_WAIT_SECONDS", "0")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@*.neon.tech/neondb")
+    called: list[bool] = []
+
+    def boom(cfg):
+        called.append(True)
+        raise AssertionError("connect_store must not run while importing api/index.py")
+
+    monkeypatch.setattr(connect_mod, "connect_store", boom)
+    create_app(migrate_on_boot=True)
+    assert called == []
+
+
+def test_create_app_survives_readonly_data_dir_without_vercel_env(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+    from src.config import Settings
+    from src.db import connect as connect_mod
+
+    monkeypatch.delenv("VERCEL", raising=False)
+    monkeypatch.delenv("VERCEL_ENV", raising=False)
+    monkeypatch.delenv("VERCEL_URL", raising=False)
+    monkeypatch.delenv("VERCEL_REGION", raising=False)
+    monkeypatch.delenv("LAMBDA_TASK_ROOT", raising=False)
+    monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.setattr(connect_mod, "try_postgres", lambda cfg, **k: None)
+    settings = Settings(
+        database_url="postgresql://u:p@*.neon.tech/neondb",
+        require_postgres=False,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "data" / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path / "data" / "raw",
+        review_dump_path=tmp_path / "data" / "review",
+        hf_home=tmp_path / "data" / "models",
+        reports_path=tmp_path / "data" / "reports",
+        lock_path=tmp_path / "data" / "locks",
+    )
+    original = Path.mkdir
+
+    def boom(self, mode=0o777, parents=False, exist_ok=False):
+        if "data" in Path(self).parts:
+            raise OSError(30, "Read-only file system")
+        return original(self, mode=mode, parents=parents, exist_ok=exist_ok)
+
+    monkeypatch.setattr(Path, "mkdir", boom)
+    app = create_app(settings=settings, migrate_on_boot=True)
+    client = TestClient(app)
+    health = client.get("/health")
+    assert health.status_code == 200
+    assert health.json()["store"] in {"pending", "memory", "postgres"}
+
+
+def test_wait_for_postgres_rejects_placeholder_neon_without_handshake(monkeypatch, tmp_path):
+    from src.db import connect as connect_mod
+
+    monkeypatch.setenv("VERCEL", "1")
+    for key in (
+        "RENDER_DATABASE_URL",
+        "DISCOVERY_DATABASE_URL",
+        "DATABASE_PRIVATE_URL",
+        "DATABASE_PUBLIC_URL",
+        "POSTGRES_URL",
+        "POSTGRES_PRISMA_URL",
+        "POSTGRES_URL_NON_POOLING",
+        "PGHOST",
+        "PG_HOST",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@*.neon.tech/neondb")
+    monkeypatch.setattr(
+        connect_mod,
+        "handshake_database_url",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not handshake placeholder host")),
+    )
+    settings = Settings(
+        database_url="postgresql://u:p@*.neon.tech/neondb",
+        require_postgres=True,
+        postgres_wait_seconds=30,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    with pytest.raises(PostgresRequiredError, match="placeholder|not a real Postgres"):
+        wait_for_postgres(settings)
 
 
 def test_render_blueprint_injects_postgres_url():

@@ -1,0 +1,6 @@
+# Project-level ignore takes precedence over the repo-root .vercelignore.
+# Without this file, Vercel applies the API project's ignore list and drops
+# this directory, so Next.js is never detected.
+.env
+.env.local
+.env*.local
