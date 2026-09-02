@@ -115,6 +115,12 @@ def pending_store_detail(boot_error: str | None) -> str:
             "discovery-api and discovery-db are both in Singapore. "
             f"Last error: {err}"
         )
+    if "ssl/tls required" in lowered or "ssl required" in lowered:
+        return (
+            "Render Postgres requires TLS on the public hostname. The API reconnects "
+            "with sslmode=require to dpg-….singapore-postgres.render.com. "
+            f"Last error: {err}"
+        )
     if "ssl connection has been closed" in lowered or "hostaddr" in lowered:
         return (
             "Render Postgres TLS failed. The API retries with sslnegotiation=direct "

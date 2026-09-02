@@ -255,7 +255,7 @@ Sizing: start with `0.5c-1g` and 5–10 GB disk. 1024-d vectors plus raw/normali
   | `LOCK_PATH`          | `/data/locks`                                                       |
   | `LOCAL_STORE_PATH`   | `/data/local_store.pkl` (must not be the live store)                |
 
-6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `pending`, the process is up and still attaching Postgres (liveness is 200). If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. Native Python uses the internal `dpg-` host with `sslmode=disable`. If `store` stays `pending`, confirm API + database share a region (Singapore) and the service runtime is Python, not Docker.
+6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `pending`, the process is up and still attaching Postgres (liveness is 200). If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. When the short `dpg-` name resolves to a public IP, the API uses `dpg-….singapore-postgres.render.com` with `sslmode=require` (plain TCP is rejected with `SSL/TLS required`). If `store` stays `pending`, confirm API + database share a region (Singapore) and the service runtime is Python, not Docker.
 7. After the first successful deploy, confirm OpenAPI at `https://<api>.onrender.com/docs` (optional; still behind CORS).
 
 The API install is `requirements-api.txt` (no torch). Builds should finish in a few minutes. Run ingest/embed from the laptop against the External Database URL.

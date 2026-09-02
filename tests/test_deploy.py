@@ -260,18 +260,45 @@ def test_conninfo_candidates_render_tries_internal_without_prefer(monkeypatch):
     )
     assert cands
     hosts = [_hostname(item) for item in cands]
-    assert hosts[0] == "dpg-abc123-a"
-    assert "postgres.render.com" in " ".join(hosts)
-    assert ":5432" in cands[0]
+    assert hosts[0] == "dpg-abc123-a.singapore-postgres.render.com"
+    assert "sslmode=require" in cands[0]
     blob = " ".join(cands)
     assert "sslmode=prefer" not in blob
-    assert "sslmode=disable" in cands[0]
-    public = [item for item in cands if "postgres.render.com" in item]
-    assert public and "sslnegotiation=direct" in public[0]
-    internal = [item for item in cands if _hostname(item) == "dpg-abc123-a"]
-    assert internal and "sslmode=disable" in internal[0]
+    assert "sslmode=disable" not in blob
     assert "dpg-abc123-a.internal" not in blob
     assert "discovery-db" not in blob
+
+
+def test_conninfo_candidates_private_ip_allows_disable(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    from src.db import connect as connect_mod
+
+    monkeypatch.setattr(
+        connect_mod,
+        "host_resolves_privately",
+        lambda host, port=5432: host == "dpg-abc123-a",
+    )
+    cands = conninfo_candidates("postgresql://u:p@dpg-abc123-a:5432/discovery")
+    internal = [item for item in cands if _hostname(item) == "dpg-abc123-a"]
+    assert internal and "sslmode=disable" in internal[0]
+
+
+def test_render_require_conninfo_uses_public_host_and_tls():
+    from src.db.connect import render_require_conninfo
+
+    out = render_require_conninfo("postgresql://u:p@dpg-abc123-a:5432/discovery")
+    assert _hostname(out) == "dpg-abc123-a.singapore-postgres.render.com"
+    assert "sslmode=require" in out
+    assert "sslmode=disable" not in out
+
+
+def test_ssl_tls_required_detects_render_fatal():
+    from src.db.connect import ssl_tls_required
+
+    assert ssl_tls_required(
+        Exception('connection to server at "18.142.152.125", port 5432 failed: FATAL:  SSL/TLS required')
+    )
+    assert not ssl_tls_required(Exception("connection refused"))
 
 
 def test_conninfo_candidates_docker_tries_public_host_first(monkeypatch):
@@ -283,7 +310,6 @@ def test_conninfo_candidates_docker_tries_public_host_first(monkeypatch):
         "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
     )
     assert _hostname(cands[0]) == "dpg-abc123-a.singapore-postgres.render.com"
-    assert "sslnegotiation=direct" in cands[0]
     assert "sslmode=require" in cands[0]
 
 
@@ -294,8 +320,9 @@ def test_conninfo_candidates_rebuilds_public_host_from_internal(monkeypatch):
     blob = " ".join(cands)
     assert "dpg-abc123-a.singapore-postgres.render.com" in blob
     assert "sslmode=prefer" not in blob
-    assert _hostname(cands[0]) == "dpg-abc123-a"
-    assert "sslmode=disable" in cands[0]
+    assert _hostname(cands[0]) == "dpg-abc123-a.singapore-postgres.render.com"
+    assert "sslmode=require" in cands[0]
+    assert "sslmode=disable" not in blob
 
 
 def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
@@ -540,12 +567,15 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     assert "localhost" in local.lower()
     private = pending_store_detail("handshake failed (host=dpg-abc123-a)")
     assert "dpg-" in private
+    tls_req = pending_store_detail(
+        'connection to server at "18.142.152.125", port 5432 failed: FATAL:  SSL/TLS required'
+    )
+    assert "sslmode=require" in tls_req
     ssl = pending_store_detail(
         "connection to server at \"13.214.97.86\", port 5432 failed: "
         "SSL connection has been closed unexpectedly"
     )
     assert "sslmode=require" in ssl or "Singapore" in ssl
-    assert "sslnegotiation=direct" in ssl
     dns = pending_store_detail(
         "failed to resolve host 'dpg-xxxxx-a': [Errno -2] Name or service not known"
     )

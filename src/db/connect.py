@@ -377,18 +377,37 @@ def expand_render_postgres_url(url: str) -> list[str]:
     return out
 
 
-def postgres_host_resolves(host: str, port: str | int = 5432) -> bool:
+def host_resolves_privately(host: str, port: str | int = 5432) -> bool:
+    """True only when DNS returns RFC1918/CGNAT IPv4 — not a public AWS IP."""
+    ips = resolved_ips_for_host(host, port)
+    v4 = [ip for ip in ips if ip and ":" not in ip]
+    return bool(v4) and all(is_private_ip(ip) for ip in v4)
+
+
+def resolved_ips_for_host(host: str, port: str | int = 5432) -> list[str]:
+    host = (host or "").strip().rstrip(".")
     if not host or is_loopback_host(host):
-        return True
+        return []
     try:
         port_n = int(port or 5432)
     except (TypeError, ValueError):
         port_n = 5432
     try:
-        socket.getaddrinfo(host, port_n, type=socket.SOCK_STREAM)
-        return True
+        infos = socket.getaddrinfo(host, port_n, type=socket.SOCK_STREAM)
     except OSError:
-        return False
+        return []
+    found: list[str] = []
+    for info in infos:
+        ip = info[4][0]
+        if ip and ip not in found:
+            found.append(ip)
+    return found
+
+
+def postgres_host_resolves(host: str, port: str | int = 5432) -> bool:
+    if not host or is_loopback_host(host):
+        return True
+    return bool(resolved_ips_for_host(host, port))
 
 
 def is_private_ip(ip: str) -> bool:
@@ -898,6 +917,26 @@ def resolve_database_url(explicit: str) -> str:
     return raw
 
 
+def ssl_tls_required(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "ssl/tls required" in msg or "ssl is required" in msg or "ssl required" in msg
+
+
+def render_require_conninfo(url: str) -> str:
+    """External Render URL with sslmode=require (SNI + TLS). Never disable against a public IP."""
+    host, port, user, password, path, query = _split_postgres_url(url)
+    pg_id = render_postgres_id(host)
+    if pg_id:
+        host = f"{pg_id}.{render_postgres_region(host)}-postgres.render.com"
+    rebuilt = _rebuild_postgres_url(host, port or "5432", user, password, path, "")
+    return _with_query_params(
+        rebuilt,
+        sslmode="require",
+        gssencmode="disable",
+        channel_binding="disable",
+    )
+
+
 def conninfo_candidates(database_url: str) -> list[str]:
     """Try TLS modes that hosted public vs private hosts actually accept."""
     url = normalize_database_url(database_url)
@@ -916,28 +955,21 @@ def conninfo_candidates(database_url: str) -> list[str]:
     render_tls_direct = {**render_tls, "sslnegotiation": "direct"}
     render_plain = {"sslmode": "disable", "gssencmode": "disable", "channel_binding": "disable"}
     if is_render_postgres_host(host):
-        # Never sslmode=prefer: libpq starts TLS, Render closes, error is "SSL closed unexpectedly".
-        # Short dpg-… host is private DNS only. Public host uses sslnegotiation=direct
-        # first (libpq 17+ / TLS terminator), then classic SSLRequest.
+        # Public AWS IPs (18.x, 13.x, 3.x) require TLS. sslmode=disable → FATAL SSL/TLS required.
+        # Short dpg- names often resolve to that same public IP, so disable is wrong there too.
+        # Only disable when DNS actually returns a private address.
+        add(render_require_conninfo(url))
         for variant in expand_render_postgres_url(url):
             variant_host = _hostname(variant)
             if is_render_internal_host(variant_host):
-                add(_with_query_params(variant, **render_plain))
-                add(_with_query_params(variant, **render_tls))
-            else:
-                add(_with_query_params(variant, sslmode="require", sslnegotiation="direct"))
-                add(
-                    _with_query_params(
-                        variant,
-                        sslmode="require",
-                        sslnegotiation="direct",
-                        sslrootcert="system",
-                    )
-                )
-                add(_with_query_params(variant, **render_tls_direct))
-                add(_with_query_params(variant, sslmode="require"))
-                add(_with_query_params(variant, **render_tls))
-                add(_with_query_params(variant, sslmode="disable"))
+                if host_resolves_privately(variant_host):
+                    add(_with_query_params(variant, **render_plain))
+                    add(_with_query_params(variant, **render_tls))
+                continue
+            add(_with_query_params(variant, **render_tls))
+            add(_with_query_params(variant, **render_tls_direct))
+            add(_with_query_params(variant, sslmode="require", sslnegotiation="direct"))
+            add(_with_query_params(variant, sslmode="require"))
         return out
     if host.endswith(".railway.internal"):
         disabled = _set_query_param(url, "sslmode", "disable")
@@ -1006,6 +1038,24 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
                 dict(parse_qsl(_query)).get("sslmode", "default"),
                 exc,
             )
+            if ssl_tls_required(exc):
+                required = render_require_conninfo(conninfo)
+                if required != conninfo:
+                    try:
+                        with open_psycopg(required, connect_timeout=connect_timeout) as conn:
+                            conn.execute("SELECT 1")
+                        log.info(
+                            "Postgres connected with sslmode=require host=%s",
+                            _hostname(required),
+                        )
+                        return required
+                    except Exception as retry_exc:  # noqa: BLE001
+                        last_exc = retry_exc
+                        log.warning(
+                            "Postgres sslmode=require retry failed host=%s (%s).",
+                            _hostname(required),
+                            retry_exc,
+                        )
     if last_exc is not None:
         raise last_exc
     raise PostgresRequiredError(POSTGRES_UNREACHABLE)
@@ -1040,6 +1090,20 @@ def postgres_connect(database_url: str, **kwargs):
         except Exception as exc:  # noqa: BLE001 — try the next TLS mode
             last_exc = exc
             log.warning("Postgres connect failed host=%s (%s).", _hostname(conninfo) or "?", exc)
+            if ssl_tls_required(exc):
+                required = render_require_conninfo(conninfo)
+                if required != conninfo:
+                    try:
+                        options = dict(kwargs)
+                        options.setdefault("connect_timeout", timeout)
+                        return open_psycopg(required, **options)
+                    except Exception as retry_exc:  # noqa: BLE001
+                        last_exc = retry_exc
+                        log.warning(
+                            "Postgres sslmode=require retry failed host=%s (%s).",
+                            _hostname(required),
+                            retry_exc,
+                        )
     if last_exc is not None:
         raise last_exc
     raise PostgresRequiredError(POSTGRES_UNREACHABLE)
