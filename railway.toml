@@ -1,5 +1,5 @@
-# Railway: Query API + Copilot. Postgres is a separate pgvector service.
-# Frontend stays on Vercel (web/). Docs: docs/deployment-plan.md
+# Optional Railway image. Primary host is two Vercel projects (FastAPI + Next.js).
+# Docs: docs/deployment-plan.md
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"

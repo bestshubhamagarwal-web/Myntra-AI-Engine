@@ -35,6 +35,69 @@ def test_railway_toml_uses_dockerfile():
     assert "0.0.0.0" in dockerfile
 
 
+def test_vercel_fastapi_entrypoint_and_requirements():
+    root = Path(__file__).resolve().parents[1]
+    entry = (root / "api" / "index.py").read_text(encoding="utf-8")
+    assert "create_app" in entry
+    assert "app =" in entry
+    assert "migrate_on_boot" in entry
+    vercel = (root / "vercel.json").read_text(encoding="utf-8")
+    assert "api/index.py" in vercel
+    assert "maxDuration" in vercel
+    assert "fastapi" in vercel.lower()
+    req = (root / "requirements.txt").read_text(encoding="utf-8").lower()
+    packages = "\n".join(
+        line for line in req.splitlines() if line.strip() and not line.strip().startswith("#")
+    )
+    assert "fastapi" in packages
+    assert "psycopg" in packages
+    assert "torch" not in packages
+    assert "sentence-transformers" not in packages
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'entrypoint = "api.index:app"' in pyproject
+
+
+def test_normalize_database_url_neon_requires_tls():
+    url = normalize_database_url("postgresql://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb")
+    assert "sslmode=require" in url
+    assert _hostname(url) == "ep-abc.ap-southeast-1.aws.neon.tech"
+    prisma = normalize_database_url(
+        "postgres://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb?pgbouncer=true&sslmode=require"
+    )
+    assert "pgbouncer" not in prisma.lower()
+    assert "sslmode=require" in prisma
+
+
+def test_conninfo_candidates_neon_does_not_try_disable():
+    cands = conninfo_candidates("postgresql://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb")
+    blob = " ".join(cands)
+    assert "sslmode=require" in blob
+    assert "sslmode=disable" not in blob
+
+
+def test_load_settings_on_vercel_does_not_keep_localhost(monkeypatch):
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("RAILWAY_PROJECT_ID", raising=False)
+    monkeypatch.delenv("REQUIRE_POSTGRES", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://discovery:discovery@localhost:5432/discovery",
+    )
+    monkeypatch.setenv(
+        "POSTGRES_URL",
+        "postgresql://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb",
+    )
+    settings = load_settings()
+    assert "neon.tech" in settings.database_url
+    assert "localhost" not in settings.database_url
+    assert settings.require_postgres is True
+    reports = str(settings.reports_path).replace("\\", "/").lower()
+    assert reports.endswith("tmp/reports")
+
+
 def test_render_blueprint_injects_postgres_url():
     from pathlib import Path
 
@@ -596,7 +659,7 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     assert "railway.internal" in reachability.lower() or "not a real postgres" in reachability.lower()
     local = pending_store_detail("could not connect to server at localhost")
     assert "localhost" in local.lower()
-    assert "railway.internal" in local.lower()
+    assert "neon.tech" in local.lower()
     private = pending_store_detail("handshake failed (host=dpg-abc123-a)")
     assert "dpg-" in private
     tls_req = pending_store_detail(

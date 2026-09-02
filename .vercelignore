@@ -1,0 +1,12 @@
+web
+tests
+docs
+data
+evals
+ops
+.venv
+venv
+**/.next
+**/node_modules
+evals/runs
+script.md

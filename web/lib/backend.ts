@@ -1,5 +1,5 @@
 /**
- * Resolve the Railway Query API origin for the Vercel/Next.js server proxy.
+ * Resolve the Query API origin for the Vercel/Next.js server proxy.
  * Never expose this URL to the browser (no NEXT_PUBLIC_ required).
  */
 
@@ -26,36 +26,51 @@ export function resolveBackendBase(): { url: string; error?: string } {
     return {
       url,
       error:
-        "API_BASE_URL is missing or points at localhost. In Vercel → Settings → Environment Variables set API_BASE_URL to the Railway public HTTPS origin (https://<service>.up.railway.app) and API_SHARED_SECRET to the same value as Railway, then Redeploy.",
+        "API_BASE_URL is missing or points at localhost. In the dashboard Vercel project → Settings → Environment Variables set API_BASE_URL to the FastAPI Vercel origin (https://<api-project>.vercel.app) and API_SHARED_SECRET to the same value as the API project, then Redeploy.",
     };
   }
   if (/\.railway\.internal(?::|\/|$)/i.test(url)) {
     return {
       url,
       error:
-        "API_BASE_URL uses a private network hostname. Vercel cannot reach *.railway.internal. Use the public https://<service>.up.railway.app URL.",
+        "API_BASE_URL uses a private network hostname. Vercel cannot reach *.railway.internal. Use the public https://<api-project>.vercel.app URL.",
     };
   }
   if (/\.rlwy\.net(?::|\/|$)/i.test(url) || /\.proxy\.rlwy\.net(?::|\/|$)/i.test(url)) {
     return {
       url,
       error:
-        "API_BASE_URL points at Railway Postgres (*.rlwy.net), not the API web service. Use https://<api>.up.railway.app (no path).",
+        "API_BASE_URL points at Railway Postgres (*.rlwy.net), not the Query API. Use https://<api-project>.vercel.app (no path).",
     };
   }
   if (/dpg-[a-z0-9-]+/i.test(url) || /\.postgres\.render\.com/i.test(url)) {
     return {
       url,
       error:
-        "API_BASE_URL points at Render Postgres, not the API web service. Use https://<api>.up.railway.app (no path).",
+        "API_BASE_URL points at Render Postgres, not the Query API. Use https://<api-project>.vercel.app (no path).",
+    };
+  }
+  if (/\.neon\.tech(?::|\/|$)/i.test(url) || /\.neon\.build(?::|\/|$)/i.test(url)) {
+    return {
+      url,
+      error:
+        "API_BASE_URL points at Neon Postgres (*.neon.tech), not the Query API. Use https://<api-project>.vercel.app (no path).",
+    };
+  }
+  if (/\.supabase\.(co|com)(?::|\/|$)/i.test(url)) {
+    return {
+      url,
+      error:
+        "API_BASE_URL points at Supabase Postgres, not the Query API. Use https://<api-project>.vercel.app (no path).",
     };
   }
   try {
     const parsed = new URL(url);
-    if (
-      (parsed.hostname.endsWith("onrender.com") || parsed.hostname.endsWith("up.railway.app")) &&
-      parsed.protocol === "http:"
-    ) {
+    const hosted =
+      parsed.hostname.endsWith("onrender.com") ||
+      parsed.hostname.endsWith("up.railway.app") ||
+      parsed.hostname.endsWith("vercel.app");
+    if (hosted && parsed.protocol === "http:") {
       url = `https://${parsed.host}`;
     }
   } catch {

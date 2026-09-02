@@ -1,5 +1,6 @@
 # Query API only. No torch / sentence-transformers / sklearn.
-# The API Docker image (Railway) installs this, then
+# Keep in sync with repo-root requirements.txt (Vercel FastAPI install).
+# The API Docker image installs this, then
 # `pip install --no-deps -e .` so pyproject's ML extras are skipped.
 psycopg[binary]>=3.2
 pydantic>=2.7

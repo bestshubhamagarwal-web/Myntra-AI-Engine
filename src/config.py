@@ -22,6 +22,27 @@ FROZEN_EMBEDDING_DIM = BGE_M3_DIM
 log = logging.getLogger(__name__)
 
 
+def _on_vercel_env() -> bool:
+    return bool(
+        (os.environ.get("VERCEL") or "").strip()
+        or (os.environ.get("VERCEL_ENV") or "").strip()
+    )
+
+
+def apply_vercel_runtime_defaults() -> None:
+    """Vercel Functions can write only /tmp. Do not revive laptop paths or pickle store."""
+    if not _on_vercel_env():
+        return
+    os.environ.setdefault("REQUIRE_POSTGRES", "true")
+    os.environ.setdefault("POSTGRES_WAIT_SECONDS", "8")
+    os.environ.setdefault("HF_HOME", "/tmp/models")
+    os.environ.setdefault("RAW_STORE_PATH", "/tmp/raw")
+    os.environ.setdefault("REVIEW_DUMP_PATH", "/tmp/review")
+    os.environ.setdefault("REPORTS_PATH", "/tmp/reports")
+    os.environ.setdefault("LOCK_PATH", "/tmp/locks")
+    os.environ.setdefault("LOCAL_STORE_PATH", "/tmp/local_store.pkl")
+
+
 class Settings(BaseSettings):
     """Runtime config. Groq is generation-only; BGE is local. No OpenAI host."""
 
@@ -29,7 +50,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
-        # Empty DATABASE_URL on Railway/Render must not revive the localhost default.
+        # Empty DATABASE_URL on Vercel/Railway/Render must not revive the localhost default.
         env_ignore_empty=True,
     )
 
@@ -199,9 +220,9 @@ class Settings(BaseSettings):
         secret = (self.api_shared_secret or "").strip()
         public = host not in {"127.0.0.1", "localhost", "::1"}
         if public and not secret:
-            # Railway/Render inject PORT. Exiting here means nothing listens and
-            # Vercel sees the platform 502.
-            if (os.environ.get("PORT") or "").strip():
+            # Hosted platforms inject PORT. Exiting here means nothing listens.
+            # Vercel does not bind a socket; auth is enforced in the FastAPI app.
+            if (os.environ.get("PORT") or "").strip() or _on_vercel_env():
                 return
             raise ValueError(
                 "API_SHARED_SECRET is required when binding beyond localhost "
@@ -210,7 +231,7 @@ class Settings(BaseSettings):
 
 
 def resolve_listen_port(explicit: int | None = None, settings: Settings | None = None) -> int:
-    """Bind port: CLI --port, then platform PORT (Railway/Render), then API_PORT."""
+    """Bind port: CLI --port, then platform PORT (Vercel/Railway/Render), then API_PORT."""
     if explicit is not None:
         return int(explicit)
     raw = (os.environ.get("PORT") or "").strip()
@@ -274,10 +295,12 @@ def load_settings() -> Settings:
         or (os.environ.get("RENDER_SERVICE_ID") or "").strip()
         or (os.environ.get("RAILWAY_ENVIRONMENT") or "").strip()
         or (os.environ.get("RAILWAY_PROJECT_ID") or "").strip()
+        or _on_vercel_env()
     )
     if hosted:
         from src.db.connect import apply_hosted_database_env
 
+        apply_vercel_runtime_defaults()
         apply_hosted_database_env()
         raw = (os.environ.get("DATABASE_URL") or "").strip()
         extra: dict[str, str] = {}

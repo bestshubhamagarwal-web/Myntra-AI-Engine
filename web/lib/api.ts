@@ -45,8 +45,8 @@ function errorMessageFromBody(payload: unknown): string {
   if (typeof body.message === "string" && body.message.trim()) {
     if (/application failed to respond/i.test(body.message)) {
       return (
-        "Query API is not reachable (502). Set API_BASE_URL to https://<api>.up.railway.app " +
-        "(the web service, not Postgres), and confirm /health returns store=postgres."
+        "Query API is not reachable (502). Set API_BASE_URL to https://<api-project>.vercel.app " +
+        "(the FastAPI project, not Neon/Postgres), and confirm /health returns store=postgres."
       );
     }
     return body.message;
@@ -64,7 +64,7 @@ async function parseError(res: Response): Promise<string> {
   const statusText = (res.statusText || "").trim();
   if (res.status === 404) {
     return (
-      "Query API returned 404. Confirm Vercel Root Directory is web, API_BASE_URL is https://<api>.up.railway.app (no path), then Redeploy."
+      "Query API returned 404. Confirm the dashboard Vercel Root Directory is web, API_BASE_URL is https://<api-project>.vercel.app (no path), then Redeploy."
     );
   }
   if (statusText) return res.status ? `${res.status} ${statusText}` : statusText;

@@ -86,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--migrate",
         action="store_true",
-        help="Apply SQL migrations before serving (Railway/hosted boot)",
+        help="Apply SQL migrations before serving (hosted boot)",
     )
     args = parser.parse_args(argv)
     return run_serve(host=args.host, port=args.port, migrate=bool(args.migrate))

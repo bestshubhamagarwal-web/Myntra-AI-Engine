@@ -31,7 +31,14 @@ from src.api.schemas import (
     TrendsResponse,
 )
 from src.config import Settings, load_settings
-from src.db.connect import POSTGRES_UNREACHABLE, apply_hosted_database_env, connect_store, resolve_database_url
+from src.db.connect import (
+    POSTGRES_UNREACHABLE,
+    apply_hosted_database_env,
+    connect_store,
+    on_hosted_platform,
+    on_vercel,
+    resolve_database_url,
+)
 from src.db.local import PersistentMemoryRepository
 from src.db.migrate import apply_migrations
 from src.db.postgres import PostgresRepository
@@ -82,9 +89,8 @@ def pending_store_detail(boot_error: str | None) -> str:
         or "create extension vector" in lowered
     ):
         return (
-            "Migrations need pgvector. Use Railway's pgvector template (not default "
-            "Postgres). Copy that service's private DATABASE_URL "
-            "(postgresql://…@*.railway.internal) onto the API. "
+            "Migrations need pgvector. On Neon run CREATE EXTENSION vector "
+            "(SQL Editor) or use a Postgres host that ships the extension. "
             f"Last error: {err}"
         )
     if (
@@ -94,15 +100,15 @@ def pending_store_detail(boot_error: str | None) -> str:
         or "${{" in err
     ):
         return (
-            "DATABASE_URL on the API is not a real postgres:// URL. Reference the "
-            "pgvector service private URL (${{pgvector.DATABASE_URL}}, host "
-            "*.railway.internal), then redeploy. "
+            "DATABASE_URL on the API is not a real postgres:// URL. On Vercel set "
+            "DATABASE_URL or POSTGRES_URL to the Neon connection string "
+            "(host *.neon.tech), then redeploy. "
             f"Last error: {err}"
         )
     if "localhost" in lowered or "127.0.0.1" in lowered:
         return (
-            "DATABASE_URL still points at localhost. Set DATABASE_URL to the pgvector "
-            "private URL (postgresql://…@*.railway.internal), paste it on the API, "
+            "DATABASE_URL still points at localhost. Set DATABASE_URL or POSTGRES_URL "
+            "to Neon (*.neon.tech, sslmode=require) on the Vercel API project, "
             f"redeploy. Last error: {err}"
         )
     if "railway.internal" in lowered:
@@ -118,6 +124,13 @@ def pending_store_detail(boot_error: str | None) -> str:
             "prefer the private *.railway.internal URL on the API service. "
             f"Last error: {err}"
         )
+    if "neon.tech" in lowered or "neon.build" in lowered:
+        return (
+            "Neon Postgres is not reachable from the Vercel API. Use the Neon "
+            "connection string (POSTGRES_URL or DATABASE_URL, sslmode=require). "
+            "Prefer POSTGRES_URL_NON_POOLING for migrations. "
+            f"Last error: {err}"
+        )
     if (
         "name or service not known" in lowered
         or "failed to resolve host" in lowered
@@ -131,8 +144,8 @@ def pending_store_detail(boot_error: str | None) -> str:
                 f"Last error: {err}"
             )
         return (
-            "Postgres hostname did not resolve. On Railway, API and pgvector must be "
-            "in the same project; use ${{pgvector.DATABASE_URL}} (*.railway.internal). "
+            "Postgres hostname did not resolve. On Vercel use the Neon hostname "
+            "(*.neon.tech), not localhost and not a private *.railway.internal URL. "
             f"Last error: {err}"
         )
     if "ssl/tls required" in lowered or "ssl required" in lowered:
@@ -144,7 +157,7 @@ def pending_store_detail(boot_error: str | None) -> str:
             )
         return (
             "Postgres requires TLS on the public hostname. Append sslmode=require "
-            "(*.rlwy.net) or use the private *.railway.internal URL on the API. "
+            "(Neon *.neon.tech, or *.rlwy.net). "
             f"Last error: {err}"
         )
     if "ssl connection has been closed" in lowered or "hostaddr" in lowered:
@@ -170,30 +183,40 @@ def _boot_store(
     migrate: bool,
     embed_query=None,
     complete_tools=None,
+    once: bool = False,
 ) -> None:
-    """Connect (and optionally migrate) after the process is already listening."""
+    """Connect (and optionally migrate). Loop on long-running hosts; once on Vercel."""
+    lock = getattr(app.state, "boot_lock", None)
+    if lock is None:
+        lock = threading.Lock()
+        app.state.boot_lock = lock
     while True:
-        try:
-            apply_hosted_database_env()
-            cfg.database_url = resolve_database_url(cfg.database_url)
-            store = connect_store(cfg)
-            if migrate:
-                db_url = store.database_url if isinstance(store, PostgresRepository) else cfg.database_url
-                applied = apply_migrations(db_url)
-                log.info("boot migrate applied=%s", applied)
-            _attach_store(
-                app,
-                store,
-                cfg,
-                embed_query=embed_query,
-                complete_tools=complete_tools,
-            )
-            log.info("store ready kind=%s", _store_kind(store))
-            return
-        except Exception as exc:  # noqa: BLE001 — keep listening; retry
-            app.state.boot_error = str(exc)
-            log.warning("store boot retry: %s", exc)
-            time.sleep(0.05 if float(cfg.postgres_wait_seconds) <= 0 else 3.0)
+        with lock:
+            if getattr(app.state, "query", None) is not None:
+                return
+            try:
+                apply_hosted_database_env()
+                cfg.database_url = resolve_database_url(cfg.database_url)
+                store = connect_store(cfg)
+                if migrate:
+                    db_url = store.database_url if isinstance(store, PostgresRepository) else cfg.database_url
+                    applied = apply_migrations(db_url)
+                    log.info("boot migrate applied=%s", applied)
+                _attach_store(
+                    app,
+                    store,
+                    cfg,
+                    embed_query=embed_query,
+                    complete_tools=complete_tools,
+                )
+                log.info("store ready kind=%s", _store_kind(store))
+                return
+            except Exception as exc:  # noqa: BLE001 — keep listening; retry
+                app.state.boot_error = str(exc)
+                log.warning("store boot retry: %s", exc)
+                if once:
+                    return
+        time.sleep(0.05 if float(cfg.postgres_wait_seconds) <= 0 else 3.0)
 
 
 def create_app(
@@ -205,6 +228,7 @@ def create_app(
     migrate_on_boot: bool = False,
 ) -> FastAPI:
     cfg = settings or load_settings()
+    cfg.ensure_runtime_dirs()
     defer = repo is None and cfg.require_postgres
     store: DocumentRepository | None
     if repo is not None:
@@ -235,6 +259,14 @@ def create_app(
     app.state.query = None
     app.state.copilot = None
     app.state.boot_error = None
+    app.state.boot_lock = threading.Lock()
+    boot_kwargs = {
+        "app": app,
+        "cfg": cfg,
+        "migrate": migrate_on_boot,
+        "embed_query": embed_query,
+        "complete_tools": complete_tools,
+    }
     if store is not None:
         _attach_store(
             app,
@@ -244,18 +276,15 @@ def create_app(
             complete_tools=complete_tools,
         )
     elif defer:
-        threading.Thread(
-            target=_boot_store,
-            kwargs={
-                "app": app,
-                "cfg": cfg,
-                "migrate": migrate_on_boot,
-                "embed_query": embed_query,
-                "complete_tools": complete_tools,
-            },
-            name="store-boot",
-            daemon=True,
-        ).start()
+        if on_vercel():
+            _boot_store(once=True, **boot_kwargs)
+        else:
+            threading.Thread(
+                target=_boot_store,
+                kwargs=boot_kwargs,
+                name="store-boot",
+                daemon=True,
+            ).start()
 
     origins = cfg.cors_origin_list() or [
         "http://localhost:3000",
@@ -280,6 +309,11 @@ def create_app(
     ) -> None:
         secret = (cfg.api_shared_secret or "").strip()
         if not secret:
+            if on_hosted_platform():
+                raise HTTPException(
+                    status_code=503,
+                    detail="API_SHARED_SECRET is not set on the hosted Query API.",
+                )
             return
         bearer = ""
         if authorization and authorization.lower().startswith("bearer "):
@@ -294,19 +328,35 @@ def create_app(
             detail=pending_store_detail(getattr(app.state, "boot_error", None)),
         )
 
+    def _ensure_services() -> None:
+        if getattr(app.state, "query", None) is not None:
+            return
+        if on_vercel() and cfg.require_postgres:
+            _boot_store(
+                app,
+                cfg,
+                migrate=migrate_on_boot,
+                embed_query=embed_query,
+                complete_tools=complete_tools,
+                once=True,
+            )
+
     def query_svc() -> QueryService:
+        _ensure_services()
         svc = getattr(app.state, "query", None)
         if svc is None:
             raise _unavailable()
         return svc
 
     def copilot_svc() -> CopilotService:
+        _ensure_services()
         svc = getattr(app.state, "copilot", None)
         if svc is None:
             raise _unavailable()
         return svc
 
     def repo_svc() -> DocumentRepository:
+        _ensure_services()
         current = getattr(app.state, "repo", None)
         if current is None:
             raise _unavailable()

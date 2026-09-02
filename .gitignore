@@ -26,6 +26,7 @@ dist/
 build/
 web/node_modules/
 web/.next/
+.vercel/
 
 # Interview notes — do not push
 script.md

@@ -1,0 +1,13 @@
+# Vercel Query API install (repo-root FastAPI project).
+# Same packages as requirements-api.txt — no torch / sentence-transformers.
+# pyproject.toml default deps include BGE extras; do not `pip install -e .` with deps here.
+psycopg[binary]>=3.2
+pydantic>=2.7
+pydantic-settings>=2.4
+python-dotenv>=1.0
+openai>=1.40
+numpy>=1.26
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27
+setuptools>=68

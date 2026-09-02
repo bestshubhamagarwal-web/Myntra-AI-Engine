@@ -57,11 +57,12 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
   }
 
   let lastError =
-    "Query API unreachable. On Vercel set API_BASE_URL to the Railway public HTTPS URL.";
+    "Query API unreachable. On the dashboard Vercel project set API_BASE_URL to the FastAPI origin (https://<api-project>.vercel.app).";
   const attempts = req.method === "GET" || req.method === "HEAD" ? 3 : 1;
+  const timeoutMs = req.method === "POST" ? 110_000 : 20_000;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20_000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const upstream = await fetch(target, { ...init, signal: controller.signal });
       const payload = await upstream.arrayBuffer();
@@ -70,7 +71,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
         return NextResponse.json(
           {
             detail:
-              "Query API is not reachable (502). Set API_BASE_URL to https://<api>.up.railway.app (the web service, not the Postgres host). Confirm the API is live and /health returns store=postgres.",
+              "Query API is not reachable (502). Set API_BASE_URL to https://<api-project>.vercel.app (the FastAPI Vercel project, not Neon/Postgres). Confirm /health returns store=postgres.",
           },
           { status: 502 },
         );
@@ -82,7 +83,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
       ) {
         return NextResponse.json(
           {
-            detail: `Query API 404 at ${target.origin}${target.pathname}. Set Vercel API_BASE_URL to the Railway web service origin (https://<api>.up.railway.app) with no path, then Redeploy.`,
+            detail: `Query API 404 at ${target.origin}${target.pathname}. Set the dashboard project's API_BASE_URL to the FastAPI Vercel origin (https://<api-project>.vercel.app) with no path, then Redeploy.`,
           },
           { status: 404 },
         );
@@ -97,7 +98,7 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
       const name = error instanceof Error ? error.name : "";
       const message = error instanceof Error ? error.message : String(error);
       if (name === "AbortError" || name === "TimeoutError") {
-        lastError = `Query API timed out talking to ${target.origin}. If Railway just deployed, retry.`;
+        lastError = `Query API timed out talking to ${target.origin}. If the API project just deployed, retry.`;
         if (attempt === attempts - 1) {
           return NextResponse.json({ detail: lastError }, { status: 504 });
         }

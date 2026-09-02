@@ -28,14 +28,14 @@ POSTGRES_UNREACHABLE = (
 
 POSTGRES_REQUIRED = (
     "Postgres is required (REQUIRE_POSTGRES=true) but was not reachable. "
-    "Check DATABASE_URL (Railway private *.railway.internal URL, or "
-    "DATABASE_PUBLIC_URL for a laptop) and retry. Refusing local_store.pkl so "
+    "Check DATABASE_URL (Neon *.neon.tech with sslmode=require, or POSTGRES_URL "
+    "from the Vercel Neon integration). Refusing local_store.pkl so "
     "the API cannot serve an empty corpus."
 )
 
 HOSTED_LOCAL_URL = (
     "DATABASE_URL still points at localhost on the hosted API. Set DATABASE_URL "
-    "to the pgvector private URL (host *.railway.internal), redeploy. "
+    "or POSTGRES_URL to the Neon (or other pgvector) URL, redeploy. "
     "Do not paste the laptop .env value."
 )
 
@@ -53,9 +53,9 @@ HOSTED_RENDER_TLS = (
 )
 
 HOSTED_INVALID_URL = (
-    "DATABASE_URL is not a real Postgres URL (no hostname). On the API service "
-    "set DATABASE_URL to the pgvector private URL (postgresql://…@*.railway.internal), "
-    "then redeploy."
+    "DATABASE_URL is not a real Postgres URL (no hostname). On the Vercel API "
+    "project set DATABASE_URL or POSTGRES_URL to the Neon connection string "
+    "(host *.neon.tech, sslmode=require), then redeploy."
 )
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
@@ -74,9 +74,11 @@ HOSTED_URL_KEYS = (
     "RENDER_DATABASE_URL",
     "DATABASE_PRIVATE_URL",
     "DATABASE_PUBLIC_URL",
-    "POSTGRES_PRISMA_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "DATABASE_URL_UNPOOLED",
     "POSTGRES_URL",
     "DATABASE_URL",
+    "POSTGRES_PRISMA_URL",
 )
 _POSTGRES_DSN_RE = re.compile(r"postgres(?:ql)?://[^\s'\"<>]+", re.IGNORECASE)
 _DPG_HOST_RE = re.compile(r"@(dpg-[A-Za-z0-9.-]+)", re.IGNORECASE)
@@ -107,8 +109,15 @@ def on_railway() -> bool:
     )
 
 
+def on_vercel() -> bool:
+    return bool(
+        (os.environ.get("VERCEL") or "").strip()
+        or (os.environ.get("VERCEL_ENV") or "").strip()
+    )
+
+
 def on_hosted_platform() -> bool:
-    return on_render() or on_railway()
+    return on_render() or on_railway() or on_vercel()
 
 
 def running_in_docker() -> bool:
@@ -225,6 +234,10 @@ def looks_like_hosted_postgres_dsn(url: str) -> bool:
         or ".railway.internal" in text
         or ".rlwy.net" in text
         or ".railway.app" in text
+        or ".neon.tech" in text
+        or ".neon.build" in text
+        or ".supabase.co" in text
+        or ".supabase.com" in text
     )
 
 
@@ -637,8 +650,23 @@ def is_railway_postgres_host(host: str) -> bool:
     return h.endswith(".railway.internal") or h.endswith(".rlwy.net") or h.endswith(".railway.app")
 
 
+def is_neon_postgres_host(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h.endswith(".neon.tech") or h.endswith(".neon.build")
+
+
+def is_supabase_postgres_host(host: str) -> bool:
+    h = (host or "").strip().lower()
+    return h.endswith(".supabase.co") or h.endswith(".supabase.com")
+
+
 def is_hosted_postgres_host(host: str) -> bool:
-    return is_render_postgres_host(host) or is_railway_postgres_host(host)
+    return (
+        is_render_postgres_host(host)
+        or is_railway_postgres_host(host)
+        or is_neon_postgres_host(host)
+        or is_supabase_postgres_host(host)
+    )
 
 
 def is_render_internal_host(host: str) -> bool:
@@ -691,7 +719,7 @@ def normalize_database_url(url: str) -> str:
             return "postgresql://" + cleaned[len("postgres://") :]
         return cleaned
     port = port or "5432"
-    pairs = list(parse_qsl(query, keep_blank_values=True))
+    pairs = [(k, v) for k, v in parse_qsl(query, keep_blank_values=True) if k.lower() not in {"pgbouncer"}]
     keys = {key.lower() for key, _ in pairs}
 
     def set_default(key: str, value: str) -> None:
@@ -706,8 +734,14 @@ def normalize_database_url(url: str) -> str:
         set_default("sslmode", "require")
         set_default("gssencmode", "disable")
         set_default("channel_binding", "disable")
-    elif host_l.endswith(".rlwy.net") or host_l.endswith(".railway.app"):
+    elif (
+        host_l.endswith(".rlwy.net")
+        or host_l.endswith(".railway.app")
+        or is_neon_postgres_host(host_l)
+        or is_supabase_postgres_host(host_l)
+    ):
         set_default("sslmode", "require")
+        set_default("channel_binding", "disable")
     elif host_l.endswith(".railway.internal"):
         set_default("sslmode", "disable")
     return _rebuild_postgres_url(host, port, user, password, path, urlencode(pairs))
@@ -750,7 +784,7 @@ def url_from_libpq_kv(text: str) -> str:
 
 
 def apply_hosted_database_env() -> str:
-    """On Railway/Render, replace leftover laptop DATABASE_URL=localhost with the real DSN."""
+    """On Vercel/Railway/Render, replace leftover laptop DATABASE_URL=localhost with the real DSN."""
     global _loopback_database_url_ignored
     apply_resolver_workarounds()
     if not on_hosted_platform():
@@ -776,7 +810,7 @@ def apply_hosted_database_env() -> str:
 
 
 def url_from_pg_env() -> str:
-    host = (env_lookup("PGHOST", "PG_HOST") or "").strip()
+    host = (env_lookup("PGHOST", "PG_HOST", "POSTGRES_HOST", "POSTGRES_HOST_NON_POOLING") or "").strip()
     if not host or is_loopback_host(host):
         return ""
     user = (os.environ.get("PGUSER") or os.environ.get("POSTGRES_USER") or "postgres").strip() or "postgres"
@@ -795,7 +829,7 @@ def url_from_pg_env() -> str:
 
 
 def _discover_hosted_database_url(skip: str = "") -> str:
-    """Last resort: any env value that looks like a Render or Railway Postgres URL."""
+    """Last resort: any env value that looks like a hosted Postgres URL."""
     skip_n = normalize_database_url(skip)
     for key, value in os.environ.items():
         if key.upper().startswith("NIXPACKS") or key.upper() in {"PATH", "PYTHONPATH"}:
@@ -978,6 +1012,9 @@ def conninfo_candidates(database_url: str) -> list[str]:
         add(ipv6)
         add(_set_query_param(url, "sslmode", "prefer"))
         add(_set_query_param(url, "sslmode", "require"))
+    elif is_neon_postgres_host(host) or is_supabase_postgres_host(host):
+        add(_with_query_params(url, sslmode="require", channel_binding="disable"))
+        add(url)
     else:
         add(url)
         add(_set_query_param(url, "sslmode", "require"))
@@ -1203,13 +1240,19 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
             " Private host failed. Paste DATABASE_PUBLIC_URL from the database "
             "service (host ends with .rlwy.net) onto the API, with sslmode=require."
         )
+    elif any(is_neon_postgres_host(_hostname(item)) for item in urls) or is_neon_postgres_host(host):
+        extra = (
+            " Neon host failed. Use the direct (non-pooled) URL for migrations "
+            "(POSTGRES_URL_NON_POOLING) and sslmode=require. Confirm pgvector "
+            "is enabled (CREATE EXTENSION vector)."
+        )
     raise PostgresRequiredError(f"{POSTGRES_REQUIRED} Last check: {last_note}.{extra}")
 
 
 def connect_store(cfg: Settings) -> DocumentRepository:
     """Postgres when reachable; otherwise `local_store_path` so ingest and the API share data.
 
-    When `require_postgres` is true (Railway/Render), wait then fail hard — never pickle.
+    When `require_postgres` is true (Vercel/Railway/Render), wait then fail hard — never pickle.
     """
     apply_hosted_database_env()
     cfg.database_url = resolve_database_url(cfg.database_url)
