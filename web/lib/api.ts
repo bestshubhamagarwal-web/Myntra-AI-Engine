@@ -62,6 +62,11 @@ async function parseError(res: Response): Promise<string> {
     /* ignore */
   }
   const statusText = (res.statusText || "").trim();
+  if (res.status === 404) {
+    return (
+      "Query API returned 404. Confirm Vercel Root Directory is web, API_BASE_URL is https://<api>.onrender.com (no path), then Redeploy."
+    );
+  }
   if (statusText) return res.status ? `${res.status} ${statusText}` : statusText;
   return res.status ? `Request failed (${res.status})` : "Request failed";
 }

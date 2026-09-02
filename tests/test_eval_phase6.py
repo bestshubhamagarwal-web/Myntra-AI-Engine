@@ -42,12 +42,18 @@ def _iter_web_ts() -> list[Path]:
 
 def test_vercel_proxy_rejects_localhost_on_vercel() -> None:
     backend = (WEB / "lib" / "backend.ts").read_text(encoding="utf-8")
+    proxy = (WEB / "lib" / "query-proxy.ts").read_text(encoding="utf-8")
     route = (WEB / "app" / "api" / "query" / "[...path]" / "route.ts").read_text(encoding="utf-8")
+    overview = (WEB / "app" / "api" / "query" / "metrics" / "overview" / "route.ts").read_text(
+        encoding="utf-8"
+    )
     assert "isVercelRuntime" in backend
     assert "onrender.com" in backend
     assert "dpg-" in backend
-    assert "ipv4first" in route
-    assert "resolveBackendBase" in route
+    assert "proxyQuery" in route
+    assert "dynamicParams" in route
+    assert "metrics" in overview
+    assert "resolveBackendBase" in proxy
     api = (WEB / "lib" / "api.ts").read_text(encoding="utf-8")
     assert "errorMessageFromBody" in api
     assert "application failed to respond" in api.lower()
