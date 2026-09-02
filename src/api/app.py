@@ -105,22 +105,28 @@ def pending_store_detail(boot_error: str | None) -> str:
             f"paste it on the API, redeploy. Last error: {err}"
         )
     if (
-        "ssl connection has been closed" in lowered
-        or "postgres.render.com" in lowered
-        or "hostaddr" in lowered
+        "name or service not known" in lowered
+        or "failed to resolve host" in lowered
+        or "did not resolve" in lowered
     ):
         return (
-            "Render closed the Postgres TLS session because the API used the External "
-            "Database URL (public hostname / IP). Set DATABASE_URL to the Internal "
-            "Database URL (postgresql://…@dpg-…/discovery — no .render.com). "
+            "Render cannot resolve the short Postgres host dpg-… (private DNS). "
+            "The API falls back to dpg-….singapore-postgres.render.com. Confirm "
+            "discovery-api and discovery-db are both in Singapore. "
             f"Last error: {err}"
+        )
+    if "ssl connection has been closed" in lowered or "hostaddr" in lowered:
+        return (
+            "Render Postgres TLS failed. The API retries the public hostname with "
+            "sslmode=require and channel_binding=disable. Confirm API + database "
+            f"are in Singapore. Last error: {err}"
         )
     if "dpg-" in lowered and "postgres.render.com" not in lowered:
         return (
             "Internal Render Postgres host is not reachable from the API. Confirm "
-            "discovery-api and discovery-db share a region, and that DATABASE_URL is "
-            "the Internal Database URL (host is dpg-…, no .render.com). Do not paste "
-            f"the External URL on the API — it hairpins TLS. Last error: {err}"
+            "discovery-api and discovery-db share a region (Singapore). Private "
+            "DNS names like dpg-… only resolve on that network. "
+            f"Last error: {err}"
         )
     if "railway.internal" in lowered:
         return (

@@ -512,8 +512,9 @@ BGE is not billed; it is RAM + disk. Groq 429: raise `GROQ_MIN_INTERVAL_SECONDS`
 | Symptom                                                      | Likely cause                                                      | Fix                                                                 |
 | ------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
 | Render deploy healthy, UI empty, `/health` `store=memory`    | `DATABASE_URL` wrong or pg not up at boot                         | Internal URL from Blueprint; restart after Postgres is Available    |
-| `/health` stuck `store=pending`                              | Internal host unreachable (wrong region) or TLS                   | Same region; Internal URL only (`dpg-…`, no `.render.com`)          |
-| `SSL connection has been closed unexpectedly`                | API used External Postgres URL; TLS hairpin to public IP          | Internal Database URL; delete leftover External `DATABASE_URL`      |
+| `/health` stuck `store=pending`                              | Internal host unreachable (wrong region) or TLS                   | Same region (Singapore); public hostname is the DNS fallback        |
+| `failed to resolve host 'dpg-…'`                             | Short host is private DNS only; not in public DNS                 | Code retries `dpg-….{region}-postgres.render.com`; keep same region |
+| `SSL connection has been closed unexpectedly`                | TLS/channel-binding on the public Postgres hostname               | `sslmode=require` + `channel_binding=disable`; same-region services |
 | `CREATE EXTENSION vector` fails                              | Not Render Postgres, or too-old image                             | Use managed Render Postgres 16+                                     |
 | Health check never passes                                    | Bind `127.0.0.1` or port 8000 instead of `$PORT`                  | Dockerfile CMD in §5.2                                              |
 | `API_SHARED_SECRET is required when binding…`                | Used `src.cli serve` on `0.0.0.0` without secret                  | Set secret                                                          |

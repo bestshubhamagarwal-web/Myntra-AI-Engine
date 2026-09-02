@@ -35,11 +35,17 @@ HOSTED_LOCAL_URL = (
     "paste it on the API service, redeploy. Do not paste the laptop .env value."
 )
 
+HOSTED_RENDER_DNS = (
+    "Render private DNS cannot resolve the short host dpg-… (Name or service not known). "
+    "That name only works on the same-region private network. The API also tries "
+    "dpg-….{region}-postgres.render.com which resolves on public DNS. Confirm "
+    "discovery-api and discovery-db are both in Singapore."
+)
+
 HOSTED_RENDER_TLS = (
-    "Render Postgres closed TLS unexpectedly. The API used the External Database "
-    "URL (host ends with .singapore-postgres.render.com), which hairpins to a "
-    "public IP from inside Render and drops SSL. Set DATABASE_URL to the Internal "
-    "Database URL (host is dpg-… with no .render.com suffix), same region as the API."
+    "Render Postgres closed TLS unexpectedly. Retry uses sslmode=require and "
+    "channel_binding=disable on dpg-….{region}-postgres.render.com. Confirm the "
+    "API and database share a region (Singapore)."
 )
 
 HOSTED_INVALID_URL = (
@@ -143,7 +149,7 @@ def _split_postgres_url(url: str) -> tuple[str, str, str, str, str, str]:
 
 
 _RENDER_EXTERNAL_HOST = re.compile(
-    r"^(dpg-[a-z0-9-]+)\.[a-z0-9-]+-postgres\.render\.com$",
+    r"^(dpg-[a-z0-9-]+)\.([a-z0-9-]+)-postgres\.render\.com$",
     re.IGNORECASE,
 )
 
@@ -177,6 +183,81 @@ def rewrite_render_external_to_internal(url: str) -> str:
     if not match:
         return url
     return _rebuild_postgres_url(match.group(1), port or "5432", user, password, path, query)
+
+
+def render_postgres_id(host: str) -> str:
+    h = (host or "").strip().lower()
+    match = _RENDER_EXTERNAL_HOST.match(h)
+    if match:
+        return match.group(1)
+    if h.endswith(".internal"):
+        h = h[: -len(".internal")]
+    if h.startswith("dpg-") and "." not in h:
+        return h
+    return ""
+
+
+def render_postgres_region(host: str = "") -> str:
+    match = _RENDER_EXTERNAL_HOST.match((host or "").strip().lower())
+    if match:
+        return match.group(2)
+    for key in ("RENDER_POSTGRES_REGION", "RENDER_REGION"):
+        value = (os.environ.get(key) or "").strip().lower().replace("_", "-")
+        if value:
+            return value
+    for raw in os.environ.values():
+        nested = _RENDER_EXTERNAL_HOST.match(_hostname(raw or ""))
+        if nested:
+            return nested.group(2)
+    return "singapore"
+
+
+def expand_render_postgres_url(url: str) -> list[str]:
+    """Private short host, then public dpg-….region-postgres.render.com (resolves on public DNS)."""
+    cleaned = normalize_database_url(url)
+    if not cleaned:
+        return []
+    host, port, user, password, path, query = _split_postgres_url(cleaned)
+    pg_id = render_postgres_id(host)
+    if not pg_id:
+        return [cleaned]
+    region = render_postgres_region(host)
+    hosts: list[str] = []
+
+    def add_host(candidate: str) -> None:
+        if candidate and candidate not in hosts:
+            hosts.append(candidate)
+
+    if on_render():
+        add_host(pg_id)
+        add_host(f"{pg_id}.internal")
+    add_host(f"{pg_id}.{region}-postgres.render.com")
+    add_host(host)
+    port = port or "5432"
+    out: list[str] = []
+    seen: set[str] = set()
+    for item_host in hosts:
+        rebuilt = normalize_database_url(
+            _rebuild_postgres_url(item_host, port, user, password, path, query)
+        )
+        if rebuilt and rebuilt not in seen:
+            seen.add(rebuilt)
+            out.append(rebuilt)
+    return out
+
+
+def postgres_host_resolves(host: str, port: str | int = 5432) -> bool:
+    if not host or is_loopback_host(host):
+        return True
+    try:
+        port_n = int(port or 5432)
+    except (TypeError, ValueError):
+        port_n = 5432
+    try:
+        socket.getaddrinfo(host, port_n, type=socket.SOCK_STREAM)
+        return True
+    except OSError:
+        return False
 
 
 def is_loopback_host(host: str | None) -> bool:
@@ -264,10 +345,6 @@ def normalize_database_url(url: str) -> str:
 
 def url_from_pg_env() -> str:
     host = (env_lookup("PGHOST", "PG_HOST") or "").strip()
-    if on_render():
-        match = _RENDER_EXTERNAL_HOST.match(host.lower())
-        if match:
-            host = match.group(1)
     if not host or is_loopback_host(host):
         return ""
     user = (os.environ.get("PGUSER") or os.environ.get("POSTGRES_USER") or "postgres").strip() or "postgres"
@@ -340,11 +417,9 @@ def iter_database_urls(explicit: str) -> list[str]:
         if on_hosted_platform() and is_loopback_host(host):
             return
         ordered: list[str] = []
-        if on_render():
-            internal = normalize_database_url(rewrite_render_external_to_internal(url))
-            if internal and _hostname(internal):
-                ordered.append(internal)
-        if url not in ordered:
+        if is_render_postgres_host(host):
+            ordered.extend(expand_render_postgres_url(url))
+        else:
             ordered.append(url)
         for item in ordered:
             if item and item not in seen:
@@ -422,18 +497,15 @@ def conninfo_candidates(database_url: str) -> list[str]:
     render_plain = {"sslmode": "disable", "gssencmode": "disable", "channel_binding": "disable"}
     if is_render_postgres_host(host):
         # Never sslmode=prefer: libpq starts TLS, Render closes, error is "SSL closed unexpectedly".
-        # Never connect by IP: SNI/hostaddr on 13.x public addresses hairpins from inside Render.
-        if on_render():
-            internal = normalize_database_url(rewrite_render_external_to_internal(url))
-            add(_with_query_params(internal, **render_plain))
-            add(_with_query_params(internal, **render_tls))
-            if internal != url:
-                add(_with_query_params(url, **render_tls))
-        elif is_render_internal_host(host):
-            add(_with_query_params(url, **render_plain))
-            add(_with_query_params(url, **render_tls))
-        else:
-            add(_with_query_params(url, **render_tls))
+        # Short dpg-… host is private DNS only; if it does not resolve, use
+        # dpg-….{region}-postgres.render.com (public DNS + TLS).
+        for variant in expand_render_postgres_url(url):
+            variant_host = _hostname(variant)
+            if is_render_internal_host(variant_host):
+                add(_with_query_params(variant, **render_plain))
+                add(_with_query_params(variant, **render_tls))
+            else:
+                add(_with_query_params(variant, **render_tls))
         return out
     if host.endswith(".railway.internal"):
         disabled = _set_query_param(url, "sslmode", "disable")
@@ -471,6 +543,15 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
     """Return the conninfo that actually completed SELECT 1."""
     last_exc: Exception | None = None
     for conninfo in conninfo_candidates(database_url):
+        host = _hostname(conninfo)
+        _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
+        if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
+            last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
+            log.warning(
+                "Postgres host %s did not resolve; trying dpg-….region-postgres.render.com next.",
+                host,
+            )
+            continue
         try:
             with psycopg.connect(conninfo, connect_timeout=connect_timeout) as conn:
                 conn.execute("SELECT 1")
@@ -479,8 +560,8 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
             last_exc = exc
             log.warning(
                 "Postgres handshake failed host=%s sslmode=%s (%s).",
-                _hostname(conninfo) or "?",
-                dict(parse_qsl(_split_postgres_url(conninfo)[5])).get("sslmode", "default"),
+                host or "?",
+                dict(parse_qsl(_query)).get("sslmode", "default"),
                 exc,
             )
     if last_exc is not None:
@@ -493,6 +574,12 @@ def postgres_connect(database_url: str, **kwargs):
     last_exc: Exception | None = None
     timeout = int(kwargs.get("connect_timeout") or 8)
     for conninfo in conninfo_candidates(database_url):
+        host = _hostname(conninfo)
+        _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
+        if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
+            last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
+            log.warning("Postgres host %s did not resolve; trying public Render hostname next.", host)
+            continue
         try:
             options = dict(kwargs)
             options.setdefault("connect_timeout", timeout)
@@ -575,16 +662,22 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
             break
         time.sleep(2.0)
     extra = ""
-    ssl_note = any("ssl" in (note or "").lower() and "closed" in (note or "").lower() for note in last_errors)
-    used_external = any("postgres.render.com" in _hostname(item) for item in urls)
     used_internal = any(is_render_internal_host(_hostname(item)) for item in urls)
-    if ssl_note or (used_external and not used_internal):
+    dns_note = any(
+        "not known" in (note or "").lower() or "did not resolve" in (note or "").lower() or "failed to resolve" in (note or "").lower()
+        for note in last_errors
+    )
+    ssl_note = any("ssl" in (note or "").lower() and "closed" in (note or "").lower() for note in last_errors)
+    if dns_note:
+        extra = " " + HOSTED_RENDER_DNS
+    elif ssl_note:
         extra = " " + HOSTED_RENDER_TLS
     elif used_internal or is_render_internal_host(host):
         extra = (
             " Internal Render host failed. Confirm discovery-api and discovery-db "
-            "share a region (Singapore) and DATABASE_URL is the Internal Database URL "
-            "(host is dpg-…, no .render.com). Do not paste the External URL on the API."
+            "share a region (Singapore). The public hostname "
+            "dpg-….{region}-postgres.render.com is the fallback when private DNS "
+            "does not resolve."
         )
     elif host.endswith(".railway.internal") or any(
         _hostname(item).endswith(".railway.internal") for item in urls

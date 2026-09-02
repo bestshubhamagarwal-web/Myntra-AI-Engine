@@ -54,6 +54,8 @@ services:
         fromDatabase:
           name: discovery-db
           property: database
+      - key: RENDER_POSTGRES_REGION
+        value: singapore
       - key: API_HOST
         value: "0.0.0.0"
       - key: REQUIRE_POSTGRES

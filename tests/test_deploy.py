@@ -27,6 +27,7 @@ def test_render_blueprint_injects_postgres_url():
     assert "RENDER_DATABASE_URL" in text
     assert "connectionString" in text
     assert "PGHOST" in text
+    assert "RENDER_POSTGRES_REGION" in text
 
 
 def test_resolve_listen_port_prefers_cli_over_platform_port(monkeypatch):
@@ -170,6 +171,29 @@ def test_conninfo_candidates_render_tries_internal_without_prefer(monkeypatch):
     assert "channel_binding=disable" in cands[0]
     assert "gssencmode=disable" in cands[0]
     assert "sslmode=disable" in cands[0]
+    assert "dpg-abc123-a.singapore-postgres.render.com" in blob
+
+
+def test_conninfo_candidates_rebuilds_public_host_from_internal(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("RENDER_POSTGRES_REGION", "singapore")
+    cands = conninfo_candidates("postgresql://u:p@dpg-abc123-a:5432/discovery")
+    blob = " ".join(cands)
+    assert _hostname(cands[0]) == "dpg-abc123-a"
+    assert "dpg-abc123-a.singapore-postgres.render.com" in blob
+    assert "sslmode=prefer" not in blob
+
+
+def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    from src.db.connect import expand_render_postgres_url
+
+    urls = expand_render_postgres_url(
+        "postgresql://u:p@dpg-abc123-a.ohio-postgres.render.com/discovery"
+    )
+    hosts = [_hostname(item) for item in urls]
+    assert "dpg-abc123-a" in hosts
+    assert "dpg-abc123-a.ohio-postgres.render.com" in hosts
 
 
 def test_wait_for_postgres_rejects_localhost_on_render(monkeypatch, tmp_path):
@@ -318,13 +342,17 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
     local = pending_store_detail("could not connect to server at localhost")
     assert "localhost" in local.lower()
     private = pending_store_detail("handshake failed (host=dpg-abc123-a)")
-    assert "Internal Database URL" in private or "dpg-" in private
+    assert "dpg-" in private
     ssl = pending_store_detail(
         "connection to server at \"13.214.97.86\", port 5432 failed: "
         "SSL connection has been closed unexpectedly"
     )
-    assert "Internal Database URL" in ssl
-    assert "External" in ssl
+    assert "sslmode=require" in ssl or "Singapore" in ssl
+    dns = pending_store_detail(
+        "failed to resolve host 'dpg-xxxxx-a': [Errno -2] Name or service not known"
+    )
+    assert "singapore-postgres.render.com" in dns
+    assert "Singapore" in dns
 
 
 def test_require_postgres_health_listens_before_db(tmp_path):
