@@ -156,11 +156,12 @@ These are in git.
 | File | Role |
 | ---- | ---- |
 | `api/index.py` | Exports FastAPI `app = create_app(migrate_on_boot=True)` |
-| `vercel.json` | Framework `fastapi`, `maxDuration` 120, excludes `web/` / tests |
+| `vercel.json` | Framework `fastapi`, Python `buildCommand`, `maxDuration` 120, excludes `web/` |
 | `requirements.txt` | Query API only (no torch) |
 | `.python-version` | `3.12` |
 | `pyproject.toml` `[tool.vercel]` | `entrypoint = "api.index:app"` |
 | `.vercelignore` | Drops `web/`, `tests/`, `docs/`, `data/` from the API bundle |
+| `package.json` | No-op `npm run build` so a leftover Next.js Build Command does not fail |
 
 Vercel detects FastAPI from `api/index.py` + `fastapi` in `requirements.txt`. Every request hits that single function (Fluid compute).
 
@@ -196,8 +197,8 @@ Sizing: Neon free / launch is enough to start. 1024-d vectors plus raw/normalize
 
 1. [vercel.com](https://vercel.com) → **Add New → Project** → [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine).
 2. **Root Directory:** `.` (leave the repository root; do **not** set `web`).
-3. Framework preset: **FastAPI** (or Other if FastAPI is detected from `api/index.py`).
-4. Install command should match `vercel.json`: `pip install -r requirements.txt && pip install --no-deps -e .`
+3. Framework preset: **FastAPI**. If the dashboard still says Next.js, change it — the repo also contains `web/`, so Vercel may have auto-detected the dashboard and set Build Command to `npm run build`.
+4. **Build Command Override: Off.** `vercel.json` already sets `python api/vercel_build.py`. If Override is On with `npm run build`, the API project fails because Next.js lives in `web/`, not the repo root. Install command should match `vercel.json`: `pip install -r requirements.txt && pip install --no-deps -e .`
 5. Environment variables (Production + Preview):
 
 
@@ -415,6 +416,7 @@ BGE is RAM + disk on the laptop, not a Vercel line item. Groq 429: raise `GROQ_M
 | `API_BASE_URL` error about `neon.tech` / `rlwy.net`            | Pasted the database URL into the dashboard project                   | Use the **FastAPI** `https://<api>.vercel.app`                      |
 | Build installs torch / exceeds bundle size                     | `pip install -e .` without `--no-deps`                               | Use `requirements.txt` then `pip install --no-deps -e .`            |
 | Dashboard project builds FastAPI / API project builds Next.js  | Wrong Root Directory                                                 | API = `.` ; dashboard = `web`                                       |
+| API project `Command "npm run build" exited with 1`            | Framework/Build Command still Next.js from `web/package.json`        | Framework **FastAPI**; Build Command Override **Off**; Redeploy     |
 
 
 Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./Runbook.md).
@@ -442,7 +444,7 @@ Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./
 
 ## 18. In-repo deploy hooks (done)
 
-1. `api/index.py`, repo-root `vercel.json`, `requirements.txt`, `.python-version` (3.12), `web/vercel.json`.
+1. `api/index.py`, repo-root `vercel.json` (FastAPI + Python `buildCommand`), `package.json` no-op `npm run build`, `requirements.txt`, `.python-version` (3.12), `web/vercel.json`.
 2. `REQUIRE_POSTGRES=true` on Vercel makes `connect_store` wait, then fail — never `local_store.pkl`.
 3. `create_app(migrate_on_boot=True)` applies SQL after Postgres attaches on each cold start (`schema_migrations` is idempotent).
 4. `src/db/connect.py` treats Neon hosts (`*.neon.tech`, `sslmode=require`) and still understands leftover Railway/Render DSNs.

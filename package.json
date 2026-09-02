@@ -1,0 +1,8 @@
+{
+  "name": "myntra-discovery-query-api",
+  "private": true,
+  "description": "FastAPI Query API for Vercel. The Next.js dashboard is a separate project with Root Directory web/.",
+  "scripts": {
+    "build": "node -e \"console.log('fastapi query api')\""
+  }
+}

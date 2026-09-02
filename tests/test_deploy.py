@@ -46,6 +46,15 @@ def test_vercel_fastapi_entrypoint_and_requirements():
     assert "maxDuration" in vercel
     assert "fastapi" in vercel.lower()
     assert '"services"' not in vercel
+    assert '"framework": "fastapi"' in vercel
+    assert "python api/vercel_build.py" in vercel
+    assert "npm" not in vercel.lower()
+    ignore = (root / ".vercelignore").read_text(encoding="utf-8")
+    assert any(line.strip() == "web" for line in ignore.splitlines())
+    pkg = (root / "package.json").read_text(encoding="utf-8")
+    assert '"build": "next' not in pkg
+    assert "fastapi query api" in pkg.lower()
+    assert (root / "api" / "vercel_build.py").is_file()
     req = (root / "requirements.txt").read_text(encoding="utf-8").lower()
     packages = "\n".join(
         line for line in req.splitlines() if line.strip() and not line.strip().startswith("#")
