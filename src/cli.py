@@ -8,10 +8,9 @@ import sys
 from pathlib import Path
 from uuid import UUID
 
-from src.config import load_settings, require_frozen_constants, resolve_listen_port
+from src.config import load_settings, require_frozen_constants
 from src.cluster.pipeline import run_cluster
 from src.db.connect import PostgresRequiredError, connect_store, wait_for_postgres
-from src.db.local import PersistentMemoryRepository
 from src.db.memory import MemoryRepository
 from src.db.migrate import apply_migrations
 from src.db.postgres import PostgresRepository
@@ -647,63 +646,9 @@ def cmd_index(_args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    settings = load_settings()
-    host = args.host or settings.api_host
-    try:
-        port = resolve_listen_port(args.port, settings)
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    settings.api_host = host
-    settings.api_port = int(port)
-    try:
-        settings.require_api_secret_if_public()
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    if not (settings.api_shared_secret or "").strip() and host in {"127.0.0.1", "localhost", "::1"}:
-        print("auth: localhost with empty API_SHARED_SECRET (do not bind 0.0.0.0 without a secret)")
-    try:
-        import uvicorn
-    except ImportError:
-        print("uvicorn is required: pip install -e .", file=sys.stderr)
-        return 1
-    from src.api.app import create_app
+    from src.api.serve import run_serve
 
-    settings.ensure_runtime_dirs()
-    do_migrate = bool(getattr(args, "migrate", False))
-    if do_migrate and not settings.require_postgres:
-        if _wait_for_required_postgres(settings) != 0:
-            return 1
-        try:
-            applied = apply_migrations(settings.database_url)
-        except Exception as exc:  # noqa: BLE001 — boot must not hang as a silent pickle API
-            print(f"migrate failed: {exc}", file=sys.stderr)
-            return 1
-        if applied:
-            print("applied:", ", ".join(applied))
-        else:
-            print("migrations already applied")
-    try:
-        app = create_app(settings=settings, migrate_on_boot=do_migrate and settings.require_postgres)
-    except PostgresRequiredError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    store = app.state.repo
-    if store is None:
-        print("store: connecting in background (REQUIRE_POSTGRES)")
-    elif isinstance(store, PostgresRepository):
-        print(f"store: postgres  {settings.database_url}")
-    elif isinstance(store, PersistentMemoryRepository):
-        print(f"store: local file  {settings.local_store_path}")
-    else:
-        print("store: memory")
-    if not (settings.api_shared_secret or "").strip() and host not in {"127.0.0.1", "localhost", "::1"}:
-        print("warning: API_SHARED_SECRET is empty on a public bind", file=sys.stderr)
-    print(f"Query API: http://{host}:{port}/docs")
-    print("UI:        http://localhost:3000")
-    uvicorn.run(app, host=host, port=int(port))
-    return 0
+    return run_serve(host=args.host, port=args.port, migrate=bool(getattr(args, "migrate", False)))
 
 
 def cmd_eval(args: argparse.Namespace) -> int:

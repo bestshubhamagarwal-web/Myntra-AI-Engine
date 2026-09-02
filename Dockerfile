@@ -17,22 +17,22 @@ WORKDIR /app
 
 # Debian's default hosts line is `files mdns4_minimal [NOTFOUND=return] dns`.
 # That never queries DNS for single-label Render hosts like dpg-xxxxx-a.
+# ca-certificates: public-hostname TLS. Query API only — do not pip-install PyTorch.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential git \
+      ca-certificates \
     && sed -i 's/^hosts:.*/hosts: files dns/' /etc/nsswitch.conf \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
+COPY pyproject.toml README.md requirements-api.txt ./
 COPY src ./src
 COPY migrations ./migrations
 COPY prompts ./prompts
 
 RUN pip install --upgrade pip \
-    && pip install torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
+    && pip install -r requirements-api.txt \
+    && pip install --no-deps -e .
 
 EXPOSE 8000
 
-# Render injects PORT. --migrate waits for pgvector then applies SQL.
-# API_SHARED_SECRET is required because this binds 0.0.0.0.
-CMD ["sh", "-c", "python -m src.cli serve --migrate --host 0.0.0.0"]
+# Render injects PORT. --migrate applies SQL after Postgres attaches.
+CMD ["python", "-m", "src.api", "--migrate", "--host", "0.0.0.0"]

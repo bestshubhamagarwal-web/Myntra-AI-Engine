@@ -133,11 +133,11 @@ Region: pick **one** Render region for both Postgres and the API (private networ
 
 ## 5. Files in the repo
 
-These are in git. Render uses the Dockerfile via `render.yaml`; Vercel uses `web/` (including `web/vercel.json`). Do not let a native Python runtime guess `python -m src.cli serve` on `127.0.0.1:8000`.
+These are in git. Render uses native Python via `render.yaml` (`python -m src.api`). Vercel uses `web/` (including `web/vercel.json`). Do not bind `127.0.0.1:8000` on Render.
 
 ### 5.1 `render.yaml` (repo root)
 
-Blueprint: Docker web service + managed Postgres. Secrets use `sync: false` so you paste them in the Render Dashboard — they never go in git.
+Blueprint: native Python web service + managed Postgres. Secrets use `sync: false` so you paste them in the Render Dashboard — they never go in git.
 
 ```yaml
 databases:
@@ -151,11 +151,12 @@ databases:
 services:
   - type: web
     name: discovery-api
-    runtime: docker
+    runtime: python
     plan: 2c-8g
     region: singapore
     healthCheckPath: /health
-    dockerfilePath: ./Dockerfile
+    buildCommand: pip install -r requirements-api.txt && pip install --no-deps -e .
+    startCommand: python -m src.api --migrate --host 0.0.0.0
     disk:
       name: api-data
       mountPath: /data
@@ -177,46 +178,18 @@ Set remaining frozen constants and path env in the same file (already in git). R
 
 Apply with **Dashboard → New → Blueprint** and the GitHub repo, or `render blueprint apply`. First apply prompts for the three secrets.
 
-### 5.2 `Dockerfile` (repo root)
+### 5.2 API image (`Dockerfile` + `requirements-api.txt`)
 
-CPU PyTorch only. A CUDA wheel will bloat the image and fail on Render.
+The live Render service is **native Python**, not Docker. The Dockerfile is a fallback (same torch-free API install). Do **not** `pip install -e .` with default extras on Render — that pulls Sentence-Transformers / torch and a 15–20 minute build that never finishes before the next “fix”.
 
 ```dockerfile
 FROM python:3.11-slim-bookworm
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    API_HOST=0.0.0.0 \
-    REQUIRE_POSTGRES=true \
-    HF_HOME=/data/models \
-    RAW_STORE_PATH=/data/raw \
-    REVIEW_DUMP_PATH=/data/review \
-    REPORTS_PATH=/data/reports \
-    LOCK_PATH=/data/locks \
-    LOCAL_STORE_PATH=/data/local_store.pkl
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential git \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY pyproject.toml ./
-COPY src ./src
-COPY migrations ./migrations
-COPY prompts ./prompts
-
-RUN pip install --upgrade pip \
-    && pip install torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install -e . --extra-index-url https://download.pytorch.org/whl/cpu
-
-EXPOSE 8000
-
-CMD ["sh", "-c", "python -m src.cli serve --migrate --host 0.0.0.0"]
+# nsswitch: hosts: files dns  (Debian otherwise skips DNS for dpg- names)
+# pip install -r requirements-api.txt && pip install --no-deps -e .
+CMD ["python", "-m", "src.api", "--migrate", "--host", "0.0.0.0"]
 ```
 
-The image sets `API_HOST=0.0.0.0` and `REQUIRE_POSTGRES=true`. `serve` reads Render’s `PORT`, waits for Postgres, then applies migrations (`schema_migrations` is idempotent).
+`python -m src.api` reads Render’s `PORT`, listens immediately, then attaches Postgres and applies migrations (`schema_migrations` is idempotent).
 
 If migrate-on-boot feels too tight, run it once from the API **Shell** and drop `--migrate` from the start command:
 
@@ -263,7 +236,7 @@ Sizing: start with `0.5c-1g` and 5–10 GB disk. 1024-d vectors plus raw/normali
 ## 7. Render — API service
 
 1. Blueprint creates `discovery-api` from this repo. Root directory = repository root (not `web/`).
-2. Runtime: **Docker**. Dockerfile from §5.2.
+2. Runtime: **Python** (`3.11.11`). Build/start from §5.1. If the existing service is still Docker, change **Settings → Build & Deploy → Runtime** to Python (or Apply Blueprint), then deploy. Docker cannot resolve Render’s private `dpg-` hostname, which is why `/health` stayed `store=pending`.
 3. Public URL is `https://discovery-api.onrender.com` (or the name you chose). Copy this origin into Vercel `API_BASE_URL`.
 4. Disk at `/data` (Blueprint). Plan `**2c-8g**` for Copilot + BGE; `**1c-2g**` is acceptable for a metrics-only demo (expect Copilot retrieve to skip vectors).
 5. Variables (see §10). Minimum to boot:
@@ -282,10 +255,10 @@ Sizing: start with `0.5c-1g` and 5–10 GB disk. 1024-d vectors plus raw/normali
   | `LOCK_PATH`          | `/data/locks`                                                       |
   | `LOCAL_STORE_PATH`   | `/data/local_store.pkl` (must not be the live store)                |
 
-6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `pending`, the process is up and still attaching Postgres (liveness is 200). If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. If `store` stays `pending` or logs show `SSL connection has been closed unexpectedly`, the API retries `dpg-….singapore-postgres.render.com` with `sslnegotiation=direct`. Confirm API + database share a region (Singapore).
+6. Health check path: `/health`. Expected JSON: `{"status":"ok","store":"postgres"}`. If `store` is `pending`, the process is up and still attaching Postgres (liveness is 200). If `store` is `memory`, Postgres was not reachable — fix `DATABASE_URL` before sharing the frontend. Native Python uses the internal `dpg-` host with `sslmode=disable`. If `store` stays `pending`, confirm API + database share a region (Singapore) and the service runtime is Python, not Docker.
 7. After the first successful deploy, confirm OpenAPI at `https://<api>.onrender.com/docs` (optional; still behind CORS).
 
-First Docker build (CPU torch + Sentence-Transformers) can take 10–20 minutes. That is a **build**, not a hung deploy.
+The API install is `requirements-api.txt` (no torch). Builds should finish in a few minutes. Run ingest/embed from the laptop against the External Database URL.
 
 ---
 
@@ -385,7 +358,7 @@ Copy from `.env.example`. Secrets stay in the host dashboards, never in git.
 | `C_MAX` / `S_MAX`    | `200` / `4`                                                                                             |
 
 
-Render sets `PORT`. Uvicorn must use `${PORT}`. You do not need `API_PORT` if the Dockerfile uses `$PORT`.
+Render sets `PORT`. Uvicorn must use `${PORT}`. You do not need `API_PORT` if the start command omits `--port`.
 
 ### 10.2 Render `discovery-api` — connectors (optional)
 
@@ -411,7 +384,7 @@ Nothing else from the Python `.env` belongs on Vercel.
 Do these in order. Do not attach Vercel until `/health` reports `store=postgres`.
 
 - [ ] Repo on GitHub; `.env` not committed
-- [ ] Deploy the branch that contains `Dockerfile` / `render.yaml` / `web/vercel.json`
+- [ ] Deploy the branch that contains `render.yaml` / `requirements-api.txt` / `web/vercel.json`
 - [ ] Render Blueprint apply (or Dashboard: Postgres 16 + Docker web service)
 - [ ] Paste `API_SHARED_SECRET`, `AUTHOR_HMAC_SECRET`, `GROQ_API_KEY` when prompted
 - [ ] Confirm disk at `/data` and plan `2c-8g` (or `1c-2g` metrics-only)
@@ -488,7 +461,7 @@ BGE is not billed; it is RAM + disk. Groq 429: raise `GROQ_MIN_INTERVAL_SECONDS`
 | `failed to resolve host 'dpg-…'`                          | Short host is private DNS only; not in public DNS                 | Code retries `dpg-….{region}-postgres.render.com`; keep same region |
 | `SSL connection has been closed unexpectedly`             | TLS/channel-binding on the public Postgres hostname               | `sslmode=require` + `channel_binding=disable`; same-region services |
 | `CREATE EXTENSION vector` fails                           | Not Render Postgres, or too-old image                             | Use managed Render Postgres 16+                                     |
-| Health check never passes                                 | Bind `127.0.0.1` or port 8000 instead of `$PORT`                  | Dockerfile CMD in §5.2                                              |
+| Health check never passes                                 | Bind `127.0.0.1` or port 8000 instead of `$PORT`                  | `python -m src.api` in §5.2                                         |
 | `API_SHARED_SECRET is required when binding…`             | Used `src.cli serve` on `0.0.0.0` without secret                  | Set secret                                                          |
 | Vercel 502 `Query API unreachable`                        | `API_BASE_URL` trailing path, `http` vs `https`, or API asleep    | Origin only, HTTPS, `*.onrender.com` (not the Postgres host)        |
 | Vercel 401 AuthGate                                       | Secret on Render only                                             | Set the same secret on Vercel, or type it in the gate               |
@@ -525,7 +498,7 @@ Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./
 
 ## 18. In-repo deploy hooks (done)
 
-1. `Dockerfile`, `render.yaml`, `.dockerignore`, `web/vercel.json`.
-2. `REQUIRE_POSTGRES=true` (API image default) makes `connect_store` wait, then fail — never `local_store.pkl`.
-3. `python -m src.cli serve` uses platform `PORT` when `--port` is omitted; `--migrate` applies SQL before uvicorn.
+1. `render.yaml`, `requirements-api.txt`, `.python-version`, `web/vercel.json`.
+2. `REQUIRE_POSTGRES=true` makes `connect_store` wait, then fail — never `local_store.pkl`.
+3. `python -m src.api` uses platform `PORT` when `--port` is omitted; `--migrate` applies SQL after Postgres attaches.
 

@@ -14,11 +14,15 @@ databases:
 services:
   - type: web
     name: discovery-api
-    runtime: docker
+    # Native Python (not Docker): Render's private DNS resolves dpg- hosts.
+    # Docker Debian nsswitch + public DNS made internal Postgres unreachable
+    # and public TLS hairpin (`SSL connection has been closed unexpectedly`).
+    runtime: python
     plan: 2c-8g
     region: singapore
     healthCheckPath: /health
-    dockerfilePath: ./Dockerfile
+    buildCommand: pip install -r requirements-api.txt && pip install --no-deps -e .
+    startCommand: python -m src.api --migrate --host 0.0.0.0
     autoDeployTrigger: commit
     disk:
       name: api-data
@@ -63,6 +67,10 @@ services:
         value: singapore
       - key: RENDER_POSTGRES_NAME
         value: discovery-db
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: PYTHONUNBUFFERED
+        value: "1"
       - key: RES_OPTIONS
         value: ndots:0 timeout:2 attempts:2
       - key: API_HOST

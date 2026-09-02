@@ -34,6 +34,11 @@ def test_render_blueprint_injects_postgres_url():
     assert "RENDER_POSTGRES_REGION" in text
     assert "RENDER_POSTGRES_NAME" in text
     assert "RES_OPTIONS" in text
+    assert "runtime: python" in text
+    assert "requirements-api.txt" in text
+    assert "python -m src.api" in text
+    assert "PYTHON_VERSION" in text
+    assert "runtime: docker" not in text
 
 
 def test_resolve_listen_port_prefers_cli_over_platform_port(monkeypatch):
@@ -255,18 +260,30 @@ def test_conninfo_candidates_render_tries_internal_without_prefer(monkeypatch):
     )
     assert cands
     hosts = [_hostname(item) for item in cands]
-    assert hosts[0] == "dpg-abc123-a.singapore-postgres.render.com"
-    assert "dpg-abc123-a" in hosts
+    assert hosts[0] == "dpg-abc123-a"
+    assert "postgres.render.com" in " ".join(hosts)
     assert ":5432" in cands[0]
     blob = " ".join(cands)
     assert "sslmode=prefer" not in blob
-    assert "sslnegotiation=direct" in cands[0]
-    assert "sslmode=require" in cands[0]
+    assert "sslmode=disable" in cands[0]
     public = [item for item in cands if "postgres.render.com" in item]
     assert public and "sslnegotiation=direct" in public[0]
     internal = [item for item in cands if _hostname(item) == "dpg-abc123-a"]
     assert internal and "sslmode=disable" in internal[0]
     assert "discovery-db" in blob
+
+
+def test_conninfo_candidates_docker_tries_public_host_first(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    from src.db import connect as connect_mod
+
+    monkeypatch.setattr(connect_mod, "running_in_docker", lambda: True)
+    cands = conninfo_candidates(
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery"
+    )
+    assert _hostname(cands[0]) == "dpg-abc123-a.singapore-postgres.render.com"
+    assert "sslnegotiation=direct" in cands[0]
+    assert "sslmode=require" in cands[0]
 
 
 def test_conninfo_candidates_rebuilds_public_host_from_internal(monkeypatch):
@@ -276,7 +293,8 @@ def test_conninfo_candidates_rebuilds_public_host_from_internal(monkeypatch):
     blob = " ".join(cands)
     assert "dpg-abc123-a.singapore-postgres.render.com" in blob
     assert "sslmode=prefer" not in blob
-    assert _hostname(cands[0]) == "dpg-abc123-a.singapore-postgres.render.com"
+    assert _hostname(cands[0]) == "dpg-abc123-a"
+    assert "sslmode=disable" in cands[0]
 
 
 def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
@@ -287,8 +305,8 @@ def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
         "postgresql://u:p@dpg-abc123-a.ohio-postgres.render.com/discovery"
     )
     hosts = [_hostname(item) for item in urls]
-    assert hosts[0] == "dpg-abc123-a.ohio-postgres.render.com"
-    assert "dpg-abc123-a" in hosts
+    assert hosts[0] == "dpg-abc123-a"
+    assert "dpg-abc123-a.ohio-postgres.render.com" in hosts
     assert "discovery-db" in hosts
 
 
@@ -328,6 +346,33 @@ def test_conninfo_hostaddr_uses_private_ip_without_tls(monkeypatch):
     assert alts
     assert "hostaddr=10.9.8.7" in alts[0]
     assert "sslmode=disable" in alts[0]
+
+
+def test_resolv_conf_with_private_first_prepends_gateway():
+    from src.db.connect import resolv_conf_with_private_first
+
+    original = "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
+    out = resolv_conf_with_private_first(original, ["10.0.0.1", "127.0.0.11", "8.8.8.8"])
+    assert out.startswith("nameserver 10.0.0.1\nnameserver 127.0.0.11\n")
+    assert "nameserver 8.8.8.8" in out
+    assert out.count("nameserver 8.8.8.8") == 1
+
+
+def test_dockerfile_skips_torch_and_serves_api_module():
+    text = Path(__file__).resolve().parents[1].joinpath("Dockerfile").read_text(encoding="utf-8")
+    assert "pip install torch" not in text.lower()
+    assert "sentence-transformers" not in text.lower()
+    assert "hosts: files dns" in text
+    assert "requirements-api.txt" in text
+    assert '"src.api"' in text
+    assert "--no-deps" in text
+
+
+def test_api_serve_parser_accepts_migrate():
+    from src.api.serve import main
+
+    with pytest.raises(SystemExit):
+        main(["--help"])
 
 
 def test_apply_resolver_workarounds_sets_ndots(monkeypatch):

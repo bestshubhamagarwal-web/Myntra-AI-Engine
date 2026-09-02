@@ -111,6 +111,25 @@ def on_hosted_platform() -> bool:
     return on_render() or on_railway()
 
 
+def running_in_docker() -> bool:
+    """True inside a Docker image (Render native Python is not this)."""
+    return Path("/.dockerenv").exists()
+
+
+def resolv_conf_with_private_first(text: str, extra: list[str]) -> str:
+    """Prepend VPC/Docker DNS so dpg- names are not sent to 8.8.8.8 first."""
+    existing: list[str] = []
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "nameserver":
+            existing.append(parts[1].strip())
+    prepend = [ns for ns in extra if ns and ns not in existing and ns not in _PUBLIC_DNS]
+    if not prepend:
+        return text
+    header = "".join(f"nameserver {ns}\n" for ns in prepend)
+    return header + (text or "")
+
+
 def apply_resolver_workarounds() -> None:
     """Debian slim treats single-label dpg- hosts as mDNS and never queries DNS."""
     if not on_render():
@@ -118,29 +137,50 @@ def apply_resolver_workarounds() -> None:
     current = (os.environ.get("RES_OPTIONS") or "").strip()
     if "ndots" not in current.lower():
         os.environ["RES_OPTIONS"] = f"{current} ndots:0 timeout:2 attempts:2".strip()
+    extra: list[str] = []
+    gw = _default_gateway()
+    if gw:
+        extra.append(gw)
+    extra.extend(["127.0.0.11", "169.254.169.254"])
+    resolv_path = Path("/etc/resolv.conf")
+    try:
+        resolv_text = resolv_path.read_text(encoding="utf-8")
+        rewritten = resolv_conf_with_private_first(resolv_text, extra)
+        if rewritten != resolv_text:
+            resolv_path.write_text(rewritten, encoding="utf-8")
+            log.info("Prepended private DNS nameservers to /etc/resolv.conf.")
+    except OSError as exc:
+        log.warning("Could not update /etc/resolv.conf (%s).", exc)
     path = Path("/etc/nsswitch.conf")
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
+        log.info(
+            "Render resolver nameservers=%s RES_OPTIONS=%s docker=%s",
+            _resolv_conf_nameservers(),
+            os.environ.get("RES_OPTIONS", ""),
+            running_in_docker(),
+        )
         return
     hosts_line = next((line for line in text.splitlines() if line.strip().startswith("hosts:")), "")
-    if hosts_line and "mdns" not in hosts_line and re.search(r"\bdns\b", hosts_line):
-        return
-    new = re.sub(r"^hosts:.*$", "hosts: files dns", text, flags=re.M)
-    if new == text:
-        if not re.search(r"^hosts:", text, flags=re.M):
-            new = text.rstrip() + "\nhosts: files dns\n"
-        else:
-            return
-    try:
-        path.write_text(new, encoding="utf-8")
-        log.info("Updated /etc/nsswitch.conf so Render dpg- hostnames use DNS, not mDNS.")
-    except OSError as exc:
-        log.warning("Could not update /etc/nsswitch.conf (%s).", exc)
+    if not (hosts_line and "mdns" not in hosts_line and re.search(r"\bdns\b", hosts_line)):
+        new = re.sub(r"^hosts:.*$", "hosts: files dns", text, flags=re.M)
+        if new == text:
+            if not re.search(r"^hosts:", text, flags=re.M):
+                new = text.rstrip() + "\nhosts: files dns\n"
+            else:
+                new = text
+        if new != text:
+            try:
+                path.write_text(new, encoding="utf-8")
+                log.info("Updated /etc/nsswitch.conf so Render dpg- hostnames use DNS, not mDNS.")
+            except OSError as exc:
+                log.warning("Could not update /etc/nsswitch.conf (%s).", exc)
     log.info(
-        "Render resolver nameservers=%s RES_OPTIONS=%s",
+        "Render resolver nameservers=%s RES_OPTIONS=%s docker=%s",
         _resolv_conf_nameservers(),
         os.environ.get("RES_OPTIONS", ""),
+        running_in_docker(),
     )
 
 
@@ -294,7 +334,7 @@ def render_postgres_region(host: str = "") -> str:
 
 
 def expand_render_postgres_url(url: str) -> list[str]:
-    """Private short host, then public dpg-….region-postgres.render.com (resolves on public DNS)."""
+    """Private short host first on native Render; public hostname first in Docker."""
     cleaned = normalize_database_url(url)
     if not cleaned:
         return []
@@ -310,14 +350,22 @@ def expand_render_postgres_url(url: str) -> list[str]:
             hosts.append(candidate)
 
     public = f"{pg_id}.{region}-postgres.render.com"
-    if on_render():
+    if on_render() and running_in_docker():
         # Docker often cannot resolve single-label dpg- names. Try the public
-        # hostname first (it resolves); sslnegotiation=direct is applied later.
+        # hostname first (it resolves); private hostaddr is still tried first
+        # in handshake_database_url.
         add_host(public)
         add_host(pg_id)
         add_host(f"{pg_id}.internal")
         for name in render_private_service_names():
             add_host(name)
+    elif on_render():
+        # Native Render Python resolves dpg- over the private network.
+        add_host(pg_id)
+        add_host(f"{pg_id}.internal")
+        for name in render_private_service_names():
+            add_host(name)
+        add_host(public)
     else:
         add_host(public)
     add_host(host)
