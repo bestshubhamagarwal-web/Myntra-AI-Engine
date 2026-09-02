@@ -306,6 +306,30 @@ def test_dns_lookup_a_skips_public_resolvers_for_single_label(monkeypatch):
     assert connect_mod.dns_lookup_a("dpg-abc123-a") == []
 
 
+def test_is_private_ip_rfc1918():
+    from src.db.connect import is_private_ip
+
+    assert is_private_ip("10.1.2.3")
+    assert is_private_ip("192.168.1.1")
+    assert is_private_ip("172.16.0.1")
+    assert is_private_ip("100.64.1.2")
+    assert not is_private_ip("3.0.216.9")
+    assert not is_private_ip("8.8.8.8")
+
+
+def test_conninfo_hostaddr_uses_private_ip_without_tls(monkeypatch):
+    from src.db import connect as connect_mod
+
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setattr(connect_mod, "private_ips_for_host", lambda host: ["10.9.8.7"])
+    alts = connect_mod._conninfo_with_hostaddrs(
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com:5432/discovery"
+    )
+    assert alts
+    assert "hostaddr=10.9.8.7" in alts[0]
+    assert "sslmode=disable" in alts[0]
+
+
 def test_apply_resolver_workarounds_sets_ndots(monkeypatch):
     from src.db.connect import apply_resolver_workarounds
 

@@ -348,6 +348,52 @@ def postgres_host_resolves(host: str, port: str | int = 5432) -> bool:
         return False
 
 
+def is_private_ip(ip: str) -> bool:
+    """True for RFC1918, link-local, and CGNAT (100.64/10) addresses."""
+    try:
+        packed = socket.inet_aton(ip)
+    except OSError:
+        return False
+    n = int.from_bytes(packed, "big")
+    return (
+        (n >> 24) == 10
+        or (n >> 20) == 0xAC1
+        or (n >> 16) == 0xC0A8
+        or (n >> 16) == 0xA9FE
+        or (n >> 22) == 0x191  # 100.64.0.0/10
+    )
+
+
+def _default_gateway() -> str:
+    try:
+        lines = Path("/proc/net/route").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == "00000000":
+            try:
+                return socket.inet_ntoa(bytes.fromhex(parts[2])[::-1])
+            except (ValueError, OSError):
+                return ""
+    return ""
+
+
+def docker_dns_servers() -> list[str]:
+    """Nameservers that can answer Render private names (not 8.8.8.8)."""
+    servers: list[str] = []
+    for ns in _resolv_conf_nameservers():
+        if ns not in _PUBLIC_DNS and ns not in servers:
+            servers.append(ns)
+    for ns in ("127.0.0.11", "169.254.169.254"):
+        if ns not in servers:
+            servers.append(ns)
+    gw = _default_gateway()
+    if gw and gw not in servers and gw not in _PUBLIC_DNS:
+        servers.append(gw)
+    return servers
+
+
 def _resolv_conf_nameservers() -> list[str]:
     servers: list[str] = []
     try:
@@ -363,8 +409,12 @@ def _resolv_conf_nameservers() -> list[str]:
     return servers
 
 
-def dns_lookup_a(host: str, timeout: float = 2.0) -> list[str]:
-    """A records via UDP to resolv.conf nameservers, bypassing nsswitch mDNS."""
+def dns_lookup_a(
+    host: str,
+    timeout: float = 0.8,
+    nameservers: list[str] | None = None,
+) -> list[str]:
+    """A records via UDP, bypassing nsswitch mDNS."""
     host = (host or "").strip().rstrip(".").lower()
     if not host or is_loopback_host(host) or ":" in host:
         return []
@@ -395,8 +445,8 @@ def dns_lookup_a(host: str, timeout: float = 2.0) -> list[str]:
         return offset
 
     found: list[str] = []
-    servers = _resolv_conf_nameservers()
-    if "." not in host:
+    servers = list(nameservers) if nameservers is not None else _resolv_conf_nameservers()
+    if nameservers is None and "." not in host:
         servers = [ns for ns in servers if ns not in _PUBLIC_DNS]
         if not servers:
             return []
@@ -440,11 +490,50 @@ def dns_lookup_a(host: str, timeout: float = 2.0) -> list[str]:
     return found
 
 
-def _conninfo_with_hostaddrs(conninfo: str) -> list[str]:
-    host = _hostname(conninfo)
-    if not host or not is_render_internal_host(host):
+def private_ips_for_host(host: str) -> list[str]:
+    """Split-horizon: ask Docker/VPC DNS for a private A record."""
+    host = (host or "").strip().rstrip(".").lower()
+    if not host:
         return []
-    return [_set_query_param(conninfo, "hostaddr", ip) for ip in dns_lookup_a(host)]
+    found: list[str] = []
+    for ns in docker_dns_servers():
+        for ip in dns_lookup_a(host, timeout=0.6, nameservers=[ns]):
+            if ip not in found:
+                found.append(ip)
+    return [ip for ip in found if is_private_ip(ip)]
+
+
+def _conninfo_with_hostaddrs(conninfo: str) -> list[str]:
+    """Connect to a private IP (sslmode=disable). libpq skips DNS when hostaddr is set."""
+    host = _hostname(conninfo)
+    if not host or not is_render_postgres_host(host):
+        return []
+    names = [host]
+    for url in expand_render_postgres_url(conninfo):
+        extra = _hostname(url)
+        if extra and extra not in names:
+            names.append(extra)
+    if on_render():
+        for name in render_private_service_names():
+            if name not in names:
+                names.append(name)
+    ips: list[str] = []
+    for name in names:
+        for ip in private_ips_for_host(name):
+            if ip not in ips:
+                ips.append(ip)
+    out: list[str] = []
+    for ip in ips:
+        out.append(
+            _with_query_params(
+                conninfo,
+                hostaddr=ip,
+                sslmode="disable",
+                gssencmode="disable",
+                channel_binding="disable",
+            )
+        )
+    return out
 
 
 def conninfo_to_kwargs(url: str) -> dict[str, str]:
@@ -809,6 +898,7 @@ def conninfo_candidates(database_url: str) -> list[str]:
                 add(_with_query_params(variant, **render_tls_direct))
                 add(_with_query_params(variant, sslmode="require"))
                 add(_with_query_params(variant, **render_tls))
+                add(_with_query_params(variant, sslmode="disable"))
         return out
     if host.endswith(".railway.internal"):
         disabled = _set_query_param(url, "sslmode", "disable")
@@ -846,23 +936,27 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
     """Return the conninfo that actually completed SELECT 1."""
     apply_resolver_workarounds()
     last_exc: Exception | None = None
+    tried_private: set[str] = set()
     for conninfo in conninfo_candidates(database_url):
         host = _hostname(conninfo)
-        _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
-        if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
-            last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
-            log.warning(
-                "Postgres host %s did not resolve; trying hostaddr / public hostname next.",
-                host,
-            )
+        if host and host not in tried_private:
+            tried_private.add(host)
             for alt in _conninfo_with_hostaddrs(conninfo):
                 try:
                     with open_psycopg(alt, connect_timeout=connect_timeout) as conn:
                         conn.execute("SELECT 1")
+                    log.info("Postgres connected on private hostaddr host=%s", host)
                     return alt
                 except Exception as exc:  # noqa: BLE001 — try the next TLS mode
                     last_exc = exc
-                    log.warning("Postgres handshake failed host=%s hostaddr fallback (%s).", host, exc)
+                    log.warning("Postgres private IP handshake failed host=%s (%s).", host, exc)
+        _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
+        if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
+            last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
+            log.warning(
+                "Postgres host %s did not resolve; trying next hostname.",
+                host,
+            )
             continue
         try:
             with open_psycopg(conninfo, connect_timeout=connect_timeout) as conn:
@@ -885,12 +979,11 @@ def postgres_connect(database_url: str, **kwargs):
     """Open a psycopg connection, retrying hosted TLS modes."""
     last_exc: Exception | None = None
     timeout = int(kwargs.get("connect_timeout") or 8)
+    tried_private: set[str] = set()
     for conninfo in conninfo_candidates(database_url):
         host = _hostname(conninfo)
-        _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
-        if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
-            last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
-            log.warning("Postgres host %s did not resolve; trying hostaddr / public hostname next.", host)
+        if host and host not in tried_private:
+            tried_private.add(host)
             for alt in _conninfo_with_hostaddrs(conninfo):
                 try:
                     options = dict(kwargs)
@@ -898,7 +991,11 @@ def postgres_connect(database_url: str, **kwargs):
                     return open_psycopg(alt, **options)
                 except Exception as exc:  # noqa: BLE001 — try the next TLS mode
                     last_exc = exc
-                    log.warning("Postgres connect failed host=%s hostaddr fallback (%s).", host, exc)
+                    log.warning("Postgres private IP connect failed host=%s (%s).", host, exc)
+        _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
+        if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
+            last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
+            log.warning("Postgres host %s did not resolve; trying next hostname.", host)
             continue
         try:
             options = dict(kwargs)
