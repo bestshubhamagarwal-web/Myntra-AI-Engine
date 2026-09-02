@@ -27,6 +27,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # Empty DATABASE_URL on Render must not revive the localhost default.
+        env_ignore_empty=True,
     )
 
     database_url: str = "postgresql://discovery:discovery@localhost:5432/discovery"
@@ -258,4 +260,13 @@ def require_frozen_constants(settings: Settings) -> None:
 
 
 def load_settings() -> Settings:
+    # Render/Railway images must not load a laptop .env (localhost DATABASE_URL).
+    hosted = bool(
+        (os.environ.get("RENDER") or "").strip()
+        or (os.environ.get("RENDER_SERVICE_ID") or "").strip()
+        or (os.environ.get("RAILWAY_ENVIRONMENT") or "").strip()
+        or (os.environ.get("RAILWAY_PROJECT_ID") or "").strip()
+    )
+    if hosted:
+        return Settings(_env_file=None)
     return Settings()

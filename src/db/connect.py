@@ -43,6 +43,7 @@ HOSTED_INVALID_URL = (
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 HOSTED_URL_KEYS = (
+    "RENDER_DATABASE_URL",
     "DATABASE_PRIVATE_URL",
     "DATABASE_PUBLIC_URL",
     "POSTGRES_PRISMA_URL",
@@ -212,17 +213,14 @@ def iter_database_urls(explicit: str) -> list[str]:
         host = _hostname(url)
         if not host:
             return
+        if on_hosted_platform() and is_loopback_host(host):
+            return
         seen.append(url)
         out.append(url)
 
     add(explicit)
     add(resolve_database_url(explicit))
-    for key in (
-        "DATABASE_PUBLIC_URL",
-        "DATABASE_PRIVATE_URL",
-        "POSTGRES_URL",
-        "POSTGRES_PRISMA_URL",
-    ):
+    for key in HOSTED_URL_KEYS:
         add(os.environ.get(key) or "")
     add(url_from_pg_env())
     add(_discover_hosted_database_url(skip=explicit))
@@ -232,6 +230,14 @@ def iter_database_urls(explicit: str) -> list[str]:
 def resolve_database_url(explicit: str) -> str:
     """Prefer a reachable hosted URL when DATABASE_URL is local, empty, or a stub."""
     raw = normalize_database_url(explicit)
+    if on_hosted_platform() and (not raw or not is_remote_postgres_url(raw)):
+        if raw and is_loopback_host(_hostname(raw)):
+            log.warning(
+                "Ignoring loopback DATABASE_URL on hosted API (host=%s). "
+                "Using Render Postgres Internal Database URL instead.",
+                _hostname(raw) or "localhost",
+            )
+        raw = ""
     if is_remote_postgres_url(raw):
         return raw
     for key in HOSTED_URL_KEYS:
@@ -365,17 +371,18 @@ def try_postgres(
 
 def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> PostgresRepository:
     """Retry until Postgres accepts connections or the wait budget is spent."""
-    cfg.database_url = resolve_database_url(cfg.database_url)
+    env_url = normalize_database_url(
+        os.environ.get("RENDER_DATABASE_URL") or os.environ.get("DATABASE_URL") or ""
+    )
+    cfg.database_url = resolve_database_url(env_url or cfg.database_url)
     host = _hostname(cfg.database_url)
     urls = iter_database_urls(cfg.database_url)
     if cfg.require_postgres and on_hosted_platform():
-        if not urls:
-            if not host or "${{" in (cfg.database_url or ""):
-                raise PostgresRequiredError(HOSTED_INVALID_URL)
-            if is_loopback_host(host):
+        remote = [item for item in urls if not is_loopback_host(_hostname(item))]
+        if not remote:
+            if is_loopback_host(_hostname(env_url)):
                 raise PostgresRequiredError(HOSTED_LOCAL_URL)
-        elif all(is_loopback_host(_hostname(item)) for item in urls):
-            raise PostgresRequiredError(HOSTED_LOCAL_URL)
+            raise PostgresRequiredError(HOSTED_INVALID_URL)
     budget = cfg.postgres_wait_seconds if total_seconds is None else total_seconds
     deadline = time.monotonic() + max(0.0, float(budget))
     tcp_timeout = 3.0 if cfg.require_postgres else 1.0

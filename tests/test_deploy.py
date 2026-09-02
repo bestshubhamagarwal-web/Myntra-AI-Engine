@@ -16,6 +16,15 @@ from src.db.connect import (
 from src.db.local import PersistentMemoryRepository
 
 
+def test_render_blueprint_injects_postgres_url():
+    from pathlib import Path
+
+    text = Path(__file__).resolve().parents[1].joinpath("render.yaml").read_text(encoding="utf-8")
+    assert "fromDatabase" in text
+    assert "RENDER_DATABASE_URL" in text
+    assert "connectionString" in text
+
+
 def test_resolve_listen_port_prefers_cli_over_platform_port(monkeypatch):
     monkeypatch.setenv("PORT", "9999")
     settings = Settings(api_port=8000, author_hmac_secret="deploy-hmac")
@@ -72,9 +81,29 @@ def test_resolve_database_url_ignores_uninterpolated_reference(monkeypatch):
     assert "dpg-abc123-a" in url
 
 
+def test_resolve_database_url_prefers_render_url_over_localhost(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://discovery:discovery@localhost:5432/discovery",
+    )
+    monkeypatch.setenv(
+        "RENDER_DATABASE_URL",
+        "postgresql://u:p@dpg-abc123-a:5432/discovery",
+    )
+    url = resolve_database_url("postgresql://discovery:discovery@localhost:5432/discovery")
+    assert "dpg-abc123-a" in url
+    assert "localhost" not in url
+
+
 def test_wait_for_postgres_rejects_localhost_on_render(monkeypatch, tmp_path):
     monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://discovery:discovery@localhost:5432/discovery",
+    )
     for key in (
+        "RENDER_DATABASE_URL",
         "DATABASE_PRIVATE_URL",
         "DATABASE_PUBLIC_URL",
         "POSTGRES_URL",
@@ -98,6 +127,8 @@ def test_wait_for_postgres_rejects_localhost_on_render(monkeypatch, tmp_path):
 def test_wait_for_postgres_rejects_placeholder_on_render(monkeypatch, tmp_path):
     monkeypatch.setenv("RENDER", "true")
     for key in (
+        "RENDER_DATABASE_URL",
+        "DATABASE_URL",
         "DATABASE_PRIVATE_URL",
         "DATABASE_PUBLIC_URL",
         "POSTGRES_URL",

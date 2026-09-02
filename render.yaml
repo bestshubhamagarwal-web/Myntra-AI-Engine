@@ -29,6 +29,23 @@ services:
         fromDatabase:
           name: discovery-db
           property: connectionString
+      # Second copy so a leftover laptop DATABASE_URL=localhost cannot hide the real DSN.
+      - key: RENDER_DATABASE_URL
+        fromDatabase:
+          name: discovery-db
+          property: connectionString
+      - key: PGUSER
+        fromDatabase:
+          name: discovery-db
+          property: user
+      - key: PGPASSWORD
+        fromDatabase:
+          name: discovery-db
+          property: password
+      - key: PGDATABASE
+        fromDatabase:
+          name: discovery-db
+          property: database
       - key: API_HOST
         value: "0.0.0.0"
       - key: REQUIRE_POSTGRES
