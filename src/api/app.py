@@ -31,7 +31,7 @@ from src.api.schemas import (
     TrendsResponse,
 )
 from src.config import Settings, load_settings
-from src.db.connect import POSTGRES_UNREACHABLE, connect_store, resolve_database_url
+from src.db.connect import POSTGRES_UNREACHABLE, apply_hosted_database_env, connect_store, resolve_database_url
 from src.db.local import PersistentMemoryRepository
 from src.db.migrate import apply_migrations
 from src.db.postgres import PostgresRepository
@@ -117,9 +117,9 @@ def pending_store_detail(boot_error: str | None) -> str:
         )
     if "ssl connection has been closed" in lowered or "hostaddr" in lowered:
         return (
-            "Render Postgres TLS failed. The API retries the public hostname with "
-            "sslmode=require and channel_binding=disable. Confirm API + database "
-            f"are in Singapore. Last error: {err}"
+            "Render Postgres TLS failed. The API retries with sslnegotiation=direct "
+            "and sslmode=require, and connects via the private dpg- hostname when DNS "
+            f"works. Confirm API + database are in Singapore. Last error: {err}"
         )
     if "dpg-" in lowered and "postgres.render.com" not in lowered:
         return (
@@ -148,6 +148,7 @@ def _boot_store(
     """Connect (and optionally migrate) after the process is already listening."""
     while True:
         try:
+            apply_hosted_database_env()
             cfg.database_url = resolve_database_url(cfg.database_url)
             store = connect_store(cfg)
             if migrate:

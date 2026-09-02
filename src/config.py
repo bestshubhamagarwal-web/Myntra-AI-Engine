@@ -268,5 +268,13 @@ def load_settings() -> Settings:
         or (os.environ.get("RAILWAY_PROJECT_ID") or "").strip()
     )
     if hosted:
-        return Settings(_env_file=None)
+        from src.db.connect import apply_hosted_database_env
+
+        apply_hosted_database_env()
+        raw = (os.environ.get("DATABASE_URL") or "").strip()
+        extra: dict[str, str] = {}
+        if not raw:
+            # Do not revive the Settings default (localhost) after dropping a laptop DSN.
+            extra["database_url"] = ""
+        return Settings(_env_file=None, **extra)
     return Settings()

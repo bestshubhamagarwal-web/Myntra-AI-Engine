@@ -1,16 +1,19 @@
 """Render/Vercel deploy helpers (docs/deployment-plan.md)."""
 
-from __future__ import annotations
+import os
+from pathlib import Path
 
 import pytest
 
 from src.api.app import pending_store_detail
-from src.config import Settings, resolve_listen_port
+from src.config import Settings, load_settings, resolve_listen_port
 from src.db.connect import (
     PostgresRequiredError,
+    apply_hosted_database_env,
     connect_store,
     conninfo_candidates,
     normalize_database_url,
+    postgres_urls_in_text,
     resolve_database_url,
     rewrite_render_external_to_internal,
     wait_for_postgres,
@@ -25,9 +28,12 @@ def test_render_blueprint_injects_postgres_url():
     text = Path(__file__).resolve().parents[1].joinpath("render.yaml").read_text(encoding="utf-8")
     assert "fromDatabase" in text
     assert "RENDER_DATABASE_URL" in text
+    assert "DISCOVERY_DATABASE_URL" in text
     assert "connectionString" in text
     assert "PGHOST" in text
     assert "RENDER_POSTGRES_REGION" in text
+    assert "RENDER_POSTGRES_NAME" in text
+    assert "RES_OPTIONS" in text
 
 
 def test_resolve_listen_port_prefers_cli_over_platform_port(monkeypatch):
@@ -120,6 +126,90 @@ def test_resolve_database_url_prefers_render_url_over_localhost(monkeypatch):
     assert "localhost" not in url
 
 
+def test_apply_hosted_database_env_replaces_localhost(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://discovery:discovery@localhost:5432/discovery",
+    )
+    monkeypatch.setenv(
+        "DISCOVERY_DATABASE_URL",
+        "postgresql://u:p@dpg-abc123-a:5432/discovery",
+    )
+    pinned = apply_hosted_database_env()
+    assert "dpg-abc123-a" in pinned
+    assert "localhost" not in os.environ.get("DATABASE_URL", "")
+    assert "localhost" not in pinned
+
+
+def test_load_settings_on_render_does_not_keep_localhost(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://discovery:discovery@localhost:5432/discovery",
+    )
+    monkeypatch.setenv(
+        "RENDER_DATABASE_URL",
+        "postgresql://u:p@dpg-abc123-a:5432/discovery",
+    )
+    settings = load_settings()
+    assert "dpg-abc123-a" in settings.database_url
+    assert "localhost" not in settings.database_url
+
+
+def test_postgres_urls_in_text_extracts_dpg_dsn_from_blob():
+    blob = (
+        "Internal Database URL\n"
+        "postgresql://u:p@dpg-abc123-a/discovery\n"
+        "External Database URL\n"
+        "postgresql://u:p@dpg-abc123-a.singapore-postgres.render.com/discovery\n"
+    )
+    urls = postgres_urls_in_text(blob)
+    hosts = {_hostname(item) for item in urls}
+    assert "dpg-abc123-a" in hosts
+
+
+def test_split_keeps_render_host_when_password_has_question_mark():
+    url = "postgresql://u:p?ss@dpg-abc123-a:5432/discovery"
+    assert _hostname(url) == "dpg-abc123-a"
+
+
+def test_wait_for_postgres_uses_pghost_when_database_url_is_localhost(monkeypatch, tmp_path):
+    from src.db import connect as connect_mod
+
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://discovery:discovery@localhost:5432/discovery",
+    )
+    monkeypatch.setenv("PGHOST", "dpg-abc123-a")
+    monkeypatch.setenv("PGUSER", "discovery")
+    monkeypatch.setenv("PGPASSWORD", "secret")
+    monkeypatch.setenv("PGDATABASE", "discovery")
+    monkeypatch.setenv("PGPORT", "5432")
+    for key in (
+        "RENDER_DATABASE_URL",
+        "DISCOVERY_DATABASE_URL",
+        "DATABASE_PRIVATE_URL",
+        "DATABASE_PUBLIC_URL",
+        "POSTGRES_URL",
+        "POSTGRES_PRISMA_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(connect_mod, "handshake_database_url", lambda url, connect_timeout=8: url)
+    settings = Settings(
+        database_url="postgresql://discovery:discovery@localhost:5432/discovery",
+        require_postgres=True,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    repo = wait_for_postgres(settings)
+    assert "dpg-abc123-a" in repo.database_url
+    assert "localhost" not in repo.database_url
+
+
 def test_resolve_rewrites_render_external_url_on_render(monkeypatch):
     monkeypatch.setenv("RENDER", "true")
     for key in (
@@ -172,16 +262,10 @@ def test_conninfo_candidates_render_tries_internal_without_prefer(monkeypatch):
     assert "gssencmode=disable" in cands[0]
     assert "sslmode=disable" in cands[0]
     assert "dpg-abc123-a.singapore-postgres.render.com" in blob
-
-
-def test_conninfo_candidates_rebuilds_public_host_from_internal(monkeypatch):
-    monkeypatch.setenv("RENDER", "true")
-    monkeypatch.setenv("RENDER_POSTGRES_REGION", "singapore")
-    cands = conninfo_candidates("postgresql://u:p@dpg-abc123-a:5432/discovery")
-    blob = " ".join(cands)
-    assert _hostname(cands[0]) == "dpg-abc123-a"
-    assert "dpg-abc123-a.singapore-postgres.render.com" in blob
-    assert "sslmode=prefer" not in blob
+    assert "sslnegotiation=direct" in blob
+    public = [item for item in cands if "postgres.render.com" in item]
+    assert public and "sslnegotiation=direct" in public[0]
+    assert "discovery-db" in blob
 
 
 def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
@@ -194,6 +278,23 @@ def test_expand_render_postgres_url_keeps_region_from_hostname(monkeypatch):
     hosts = [_hostname(item) for item in urls]
     assert "dpg-abc123-a" in hosts
     assert "dpg-abc123-a.ohio-postgres.render.com" in hosts
+    assert "discovery-db" in hosts
+
+
+def test_dns_lookup_a_returns_empty_when_resolv_conf_missing(monkeypatch):
+    from src.db import connect as connect_mod
+
+    monkeypatch.setattr(connect_mod, "_resolv_conf_nameservers", lambda: [])
+    assert connect_mod.dns_lookup_a("dpg-abc123-a") == []
+
+
+def test_apply_resolver_workarounds_sets_ndots(monkeypatch):
+    from src.db.connect import apply_resolver_workarounds
+
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.delenv("RES_OPTIONS", raising=False)
+    apply_resolver_workarounds()
+    assert "ndots:0" in os.environ.get("RES_OPTIONS", "")
 
 
 def test_wait_for_postgres_rejects_localhost_on_render(monkeypatch, tmp_path):
@@ -348,6 +449,7 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
         "SSL connection has been closed unexpectedly"
     )
     assert "sslmode=require" in ssl or "Singapore" in ssl
+    assert "sslnegotiation=direct" in ssl
     dns = pending_store_detail(
         "failed to resolve host 'dpg-xxxxx-a': [Errno -2] Name or service not known"
     )

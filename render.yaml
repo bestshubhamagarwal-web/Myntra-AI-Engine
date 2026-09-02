@@ -29,8 +29,13 @@ services:
         fromDatabase:
           name: discovery-db
           property: connectionString
-      # Second copy so a leftover laptop DATABASE_URL=localhost cannot hide the real DSN.
+      # Render-only keys. Laptop .env uses DATABASE_URL=localhost; that leftover
+      # value must not hide the real DSN after a Blueprint apply.
       - key: RENDER_DATABASE_URL
+        fromDatabase:
+          name: discovery-db
+          property: connectionString
+      - key: DISCOVERY_DATABASE_URL
         fromDatabase:
           name: discovery-db
           property: connectionString
@@ -56,6 +61,10 @@ services:
           property: database
       - key: RENDER_POSTGRES_REGION
         value: singapore
+      - key: RENDER_POSTGRES_NAME
+        value: discovery-db
+      - key: RES_OPTIONS
+        value: ndots:0 timeout:2 attempts:2
       - key: API_HOST
         value: "0.0.0.0"
       - key: REQUIRE_POSTGRES

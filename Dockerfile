@@ -10,12 +10,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     REVIEW_DUMP_PATH=/data/review \
     REPORTS_PATH=/data/reports \
     LOCK_PATH=/data/locks \
-    LOCAL_STORE_PATH=/data/local_store.pkl
+    LOCAL_STORE_PATH=/data/local_store.pkl \
+    RES_OPTIONS="ndots:0 timeout:2 attempts:2"
 
 WORKDIR /app
 
+# Debian's default hosts line is `files mdns4_minimal [NOTFOUND=return] dns`.
+# That never queries DNS for single-label Render hosts like dpg-xxxxx-a.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential git \
+    && sed -i 's/^hosts:.*/hosts: files dns/' /etc/nsswitch.conf \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./

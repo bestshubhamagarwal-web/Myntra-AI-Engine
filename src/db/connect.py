@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import re
 import socket
+import struct
 import time
+from pathlib import Path
 from urllib.parse import parse_qsl, quote, quote_plus, unquote, urlencode, urlparse
 
 import psycopg
@@ -43,9 +46,9 @@ HOSTED_RENDER_DNS = (
 )
 
 HOSTED_RENDER_TLS = (
-    "Render Postgres closed TLS unexpectedly. Retry uses sslmode=require and "
-    "channel_binding=disable on dpg-….{region}-postgres.render.com. Confirm the "
-    "API and database share a region (Singapore)."
+    "Render Postgres closed TLS unexpectedly. The public hostname is retried "
+    "with sslnegotiation=direct (libpq 17+) plus sslmode=require and "
+    "channel_binding=disable. Prefer the private dpg- host after DNS works."
 )
 
 HOSTED_INVALID_URL = (
@@ -57,6 +60,7 @@ HOSTED_INVALID_URL = (
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 HOSTED_URL_KEYS = (
+    "DISCOVERY_DATABASE_URL",
     "RENDER_DATABASE_URL",
     "DATABASE_PRIVATE_URL",
     "DATABASE_PUBLIC_URL",
@@ -64,6 +68,15 @@ HOSTED_URL_KEYS = (
     "POSTGRES_URL",
     "DATABASE_URL",
 )
+_POSTGRES_DSN_RE = re.compile(r"postgres(?:ql)?://[^\s'\"<>]+", re.IGNORECASE)
+_DPG_HOST_RE = re.compile(r"@(dpg-[A-Za-z0-9.-]+)", re.IGNORECASE)
+
+_loopback_database_url_ignored = False
+_logged_loopback_ignore = False
+
+
+def is_loopback_host(host: str | None) -> bool:
+    return (host or "").strip().lower() in LOOPBACK_HOSTS
 
 
 class PostgresRequiredError(RuntimeError):
@@ -88,6 +101,44 @@ def on_hosted_platform() -> bool:
     return on_render() or on_railway()
 
 
+def apply_resolver_workarounds() -> None:
+    """Debian slim treats single-label dpg- hosts as mDNS and never queries DNS."""
+    if not on_render():
+        return
+    current = (os.environ.get("RES_OPTIONS") or "").strip()
+    if "ndots" not in current.lower():
+        os.environ["RES_OPTIONS"] = f"{current} ndots:0 timeout:2 attempts:2".strip()
+    path = Path("/etc/nsswitch.conf")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    hosts_line = next((line for line in text.splitlines() if line.strip().startswith("hosts:")), "")
+    if hosts_line and "mdns" not in hosts_line and re.search(r"\bdns\b", hosts_line):
+        return
+    new = re.sub(r"^hosts:.*$", "hosts: files dns", text, flags=re.M)
+    if new == text:
+        if not re.search(r"^hosts:", text, flags=re.M):
+            new = text.rstrip() + "\nhosts: files dns\n"
+        else:
+            return
+    try:
+        path.write_text(new, encoding="utf-8")
+        log.info("Updated /etc/nsswitch.conf so Render dpg- hostnames use DNS, not mDNS.")
+    except OSError as exc:
+        log.warning("Could not update /etc/nsswitch.conf (%s).", exc)
+
+
+def render_private_service_names() -> list[str]:
+    names: list[str] = []
+    extra = (os.environ.get("RENDER_POSTGRES_NAME") or "").strip().lower()
+    if extra:
+        names.append(extra)
+    if "discovery-db" not in names:
+        names.append("discovery-db")
+    return names
+
+
 def env_lookup(*keys: str) -> str:
     """Read an env var, ignoring key case (Render/Linux are case-sensitive)."""
     wanted = {key.upper() for key in keys if key}
@@ -99,7 +150,13 @@ def env_lookup(*keys: str) -> str:
 
 def _hostname(database_url: str) -> str:
     host, _port, _user, _password, _path, _query = _split_postgres_url(database_url)
-    return (host or "").strip().lower()
+    host = (host or "").strip().lower()
+    if host and not is_loopback_host(host):
+        return host
+    match = _DPG_HOST_RE.search(database_url or "")
+    if match:
+        return match.group(1).strip().lower()
+    return host
 
 
 def looks_like_hosted_postgres_dsn(url: str) -> bool:
@@ -122,8 +179,11 @@ def _split_postgres_url(url: str) -> tuple[str, str, str, str, str, str]:
         return "", "", "", "", "", ""
     rest = cleaned[len("postgresql://") :]
     query = ""
-    if "?" in rest:
-        rest, query = rest.split("?", 1)
+    at = rest.rfind("@")
+    search_from = at + 1 if at != -1 else 0
+    qpos = rest.find("?", search_from)
+    if qpos != -1:
+        rest, query = rest[:qpos], rest[qpos + 1 :]
     user = ""
     password = ""
     if "@" in rest:
@@ -145,6 +205,12 @@ def _split_postgres_url(url: str) -> tuple[str, str, str, str, str, str]:
             host = host[1:end]
     elif host.count(":") == 1:
         host, port = host.split(":", 1)
+    if (not host or is_loopback_host(host)) and "dpg-" in cleaned.lower():
+        match = _DPG_HOST_RE.search(cleaned)
+        if match:
+            host = match.group(1)
+            if ":" in host and not host.startswith("["):
+                host, port = host.split(":", 1)
     return host, port, user, password, path, query
 
 
@@ -186,7 +252,7 @@ def rewrite_render_external_to_internal(url: str) -> str:
 
 
 def render_postgres_id(host: str) -> str:
-    h = (host or "").strip().lower()
+    h = (host or "").strip().lower().rstrip(".")
     match = _RENDER_EXTERNAL_HOST.match(h)
     if match:
         return match.group(1)
@@ -231,6 +297,8 @@ def expand_render_postgres_url(url: str) -> list[str]:
     if on_render():
         add_host(pg_id)
         add_host(f"{pg_id}.internal")
+        for name in render_private_service_names():
+            add_host(name)
     add_host(f"{pg_id}.{region}-postgres.render.com")
     add_host(host)
     port = port or "5432"
@@ -260,13 +328,105 @@ def postgres_host_resolves(host: str, port: str | int = 5432) -> bool:
         return False
 
 
-def is_loopback_host(host: str | None) -> bool:
-    return (host or "").strip().lower() in LOOPBACK_HOSTS
+def _resolv_conf_nameservers() -> list[str]:
+    servers: list[str] = []
+    try:
+        text = Path("/etc/resolv.conf").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] == "nameserver":
+            ip = parts[1].strip()
+            if ip and ip not in servers:
+                servers.append(ip)
+    return servers
+
+
+def dns_lookup_a(host: str, timeout: float = 2.0) -> list[str]:
+    """A records via UDP to resolv.conf nameservers, bypassing nsswitch mDNS."""
+    host = (host or "").strip().rstrip(".").lower()
+    if not host or is_loopback_host(host) or ":" in host:
+        return []
+    qname = bytearray()
+    try:
+        for label in host.split("."):
+            raw = label.encode("ascii")
+            if not raw or len(raw) > 63:
+                return []
+            qname.append(len(raw))
+            qname.extend(raw)
+    except UnicodeEncodeError:
+        return []
+    qname.append(0)
+    txid = random.randint(0, 65535)
+    req = struct.pack("!HHHHHH", txid, 0x0100, 1, 0, 0, 0) + bytes(qname) + struct.pack("!HH", 1, 1)
+
+    def skip_name(buf: bytes, offset: int) -> int:
+        jumps = 0
+        while offset < len(buf) and jumps < 16:
+            length = buf[offset]
+            if length == 0:
+                return offset + 1
+            if length & 0xC0 == 0xC0:
+                return offset + 2
+            offset += 1 + (length & 0x3F)
+            jumps += 1
+        return offset
+
+    found: list[str] = []
+    for ns in _resolv_conf_nameservers():
+        family = socket.AF_INET6 if ":" in ns else socket.AF_INET
+        sock = None
+        try:
+            sock = socket.socket(family, socket.SOCK_DGRAM)
+            sock.settimeout(timeout)
+            sock.sendto(req, (ns, 53))
+            data, _addr = sock.recvfrom(2048)
+        except OSError:
+            continue
+        finally:
+            if sock is not None:
+                sock.close()
+        if len(data) < 12:
+            continue
+        r_id, _flags, qdcount, ancount, _nscount, _arcount = struct.unpack("!HHHHHH", data[:12])
+        if r_id != txid or ancount == 0:
+            continue
+        offset = 12
+        try:
+            for _ in range(qdcount):
+                offset = skip_name(data, offset) + 4
+            for _ in range(ancount):
+                offset = skip_name(data, offset)
+                if offset + 10 > len(data):
+                    break
+                rtype, _rclass, _ttl, rdlen = struct.unpack("!HHIH", data[offset : offset + 10])
+                offset += 10
+                if rtype == 1 and rdlen == 4 and offset + 4 <= len(data):
+                    ip = socket.inet_ntoa(data[offset : offset + 4])
+                    if ip not in found:
+                        found.append(ip)
+                offset += rdlen
+        except (struct.error, OSError, IndexError):
+            continue
+        if found:
+            break
+    return found
+
+
+def _conninfo_with_hostaddrs(conninfo: str) -> list[str]:
+    host = _hostname(conninfo)
+    if not host or not is_render_internal_host(host):
+        return []
+    return [_set_query_param(conninfo, "hostaddr", ip) for ip in dns_lookup_a(host)]
 
 
 def is_render_postgres_host(host: str) -> bool:
-    h = (host or "").strip().lower()
-    return h.endswith(".render.com") or h.startswith("dpg-")
+    h = (host or "").strip().lower().rstrip(".")
+    if h.endswith(".render.com") or h.startswith("dpg-"):
+        return True
+    return bool(on_render() and h in set(render_private_service_names()))
 
 
 def is_railway_postgres_host(host: str) -> bool:
@@ -279,8 +439,12 @@ def is_hosted_postgres_host(host: str) -> bool:
 
 
 def is_render_internal_host(host: str) -> bool:
-    h = (host or "").strip().lower()
-    return h.startswith("dpg-") and "postgres.render.com" not in h
+    h = (host or "").strip().lower().rstrip(".")
+    if not h or is_loopback_host(h) or "postgres.render.com" in h:
+        return False
+    if h.startswith("dpg-") or h.endswith(".internal"):
+        return True
+    return h in set(render_private_service_names())
 
 
 def is_remote_postgres_url(url: str) -> bool:
@@ -288,6 +452,9 @@ def is_remote_postgres_url(url: str) -> bool:
     cleaned = normalize_database_url(url)
     if not cleaned or "${{" in cleaned or "{{" in cleaned:
         return False
+    if looks_like_hosted_postgres_dsn(cleaned):
+        host = _hostname(cleaned)
+        return bool(host) and not is_loopback_host(host)
     if not cleaned.lower().startswith(("postgres://", "postgresql://")):
         return False
     host = _hostname(cleaned)
@@ -343,6 +510,70 @@ def normalize_database_url(url: str) -> str:
     return _rebuild_postgres_url(host, port, user, password, path, urlencode(pairs))
 
 
+def postgres_urls_in_text(text: str) -> list[str]:
+    """Pull postgresql:// DSNs out of a Connect-menu paste or a messy env value."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _POSTGRES_DSN_RE.finditer(text or ""):
+        url = normalize_database_url(match.group(0).rstrip(".,);"))
+        if url and url not in seen:
+            seen.add(url)
+            found.append(url)
+    kv = url_from_libpq_kv(text or "")
+    if kv and kv not in seen:
+        found.append(kv)
+    return found
+
+
+def url_from_libpq_kv(text: str) -> str:
+    blob = (text or "").strip()
+    if not blob or "://" in blob:
+        return ""
+    if not re.search(r"(?i)\bhost\s*=", blob):
+        return ""
+    kv: dict[str, str] = {}
+    for match in re.finditer(r"([A-Za-z_]+)\s*=\s*(\S+)", blob):
+        kv[match.group(1).lower()] = match.group(2).strip("'\"")
+    host = kv.get("host") or kv.get("hostaddr") or ""
+    if not host or is_loopback_host(host):
+        return ""
+    user = kv.get("user") or kv.get("username") or "postgres"
+    password = kv.get("password") or ""
+    port = kv.get("port") or "5432"
+    dbname = kv.get("dbname") or kv.get("database") or "discovery"
+    return normalize_database_url(
+        f"postgresql://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{quote_plus(dbname)}"
+    )
+
+
+def apply_hosted_database_env() -> str:
+    """On Render, replace leftover laptop DATABASE_URL=localhost with the real DSN."""
+    global _loopback_database_url_ignored
+    apply_resolver_workarounds()
+    if not on_hosted_platform():
+        return env_lookup("DATABASE_URL")
+    _loopback_database_url_ignored = False
+    current = normalize_database_url(env_lookup("DATABASE_URL"))
+    was_loopback = bool(current) and is_loopback_host(_hostname(current))
+    if current and is_remote_postgres_url(current) and not was_loopback:
+        if on_render():
+            current = normalize_database_url(rewrite_render_external_to_internal(current))
+        os.environ["DATABASE_URL"] = current
+        return current
+    if was_loopback:
+        for name in list(os.environ):
+            if name.upper() == "DATABASE_URL":
+                os.environ.pop(name, None)
+    chosen = resolve_database_url("")
+    if chosen and is_remote_postgres_url(chosen):
+        os.environ["DATABASE_URL"] = chosen
+        _loopback_database_url_ignored = False
+        log.info("Pinned DATABASE_URL to hosted Postgres host=%s", _hostname(chosen))
+        return chosen
+    _loopback_database_url_ignored = was_loopback
+    return ""
+
+
 def url_from_pg_env() -> str:
     host = (env_lookup("PGHOST", "PG_HOST") or "").strip()
     if not host or is_loopback_host(host):
@@ -368,8 +599,14 @@ def _discover_hosted_database_url(skip: str = "") -> str:
     for key, value in os.environ.items():
         if key.upper().startswith("NIXPACKS") or key.upper() in {"PATH", "PYTHONPATH"}:
             continue
-        alt = normalize_database_url(value or "")
-        if alt and alt != skip_n and is_remote_postgres_url(alt):
+        candidates = postgres_urls_in_text(value or "")
+        if not candidates:
+            normalized = normalize_database_url(value or "")
+            if normalized:
+                candidates = [normalized]
+        for alt in candidates:
+            if not alt or alt == skip_n or not is_remote_postgres_url(alt):
+                continue
             if is_hosted_postgres_host(_hostname(alt)):
                 log.info("Using Postgres URL from %s because DATABASE_URL is not connectable.", key)
                 return alt
@@ -437,22 +674,30 @@ def iter_database_urls(explicit: str) -> list[str]:
 
 def resolve_database_url(explicit: str) -> str:
     """Prefer a reachable hosted URL when DATABASE_URL is local, empty, or a stub."""
+    global _logged_loopback_ignore
     raw = normalize_database_url(explicit)
+    if not is_remote_postgres_url(raw):
+        for item in postgres_urls_in_text(explicit or ""):
+            if is_remote_postgres_url(item) and is_hosted_postgres_host(_hostname(item)):
+                raw = item
+                break
     if on_hosted_platform() and (not raw or not is_remote_postgres_url(raw)):
         if raw and is_loopback_host(_hostname(raw)):
-            log.warning(
-                "Ignoring loopback DATABASE_URL on hosted API (host=%s). "
-                "Using Render Postgres Internal Database URL instead.",
-                _hostname(raw) or "localhost",
-            )
+            if not _logged_loopback_ignore:
+                log.warning(
+                    "Ignoring loopback DATABASE_URL on hosted API (host=%s).",
+                    _hostname(raw) or "localhost",
+                )
+                _logged_loopback_ignore = True
         raw = ""
     if on_render():
-        render_url = normalize_database_url(env_lookup("RENDER_DATABASE_URL"))
-        if is_remote_postgres_url(render_url):
-            chosen = normalize_database_url(rewrite_render_external_to_internal(render_url))
-            if chosen != raw:
-                log.info("Using RENDER_DATABASE_URL (internal Render hostname).")
-            return chosen
+        for key in ("DISCOVERY_DATABASE_URL", "RENDER_DATABASE_URL"):
+            render_url = normalize_database_url(env_lookup(key))
+            if is_remote_postgres_url(render_url):
+                chosen = normalize_database_url(rewrite_render_external_to_internal(render_url))
+                if chosen != raw:
+                    log.info("Using %s (host=%s).", key, _hostname(chosen))
+                return chosen
         if is_remote_postgres_url(raw):
             rewritten = normalize_database_url(rewrite_render_external_to_internal(raw))
             if rewritten != raw:
@@ -494,17 +739,19 @@ def conninfo_candidates(database_url: str) -> list[str]:
 
     host = _hostname(url)
     render_tls = {"sslmode": "require", "gssencmode": "disable", "channel_binding": "disable"}
+    render_tls_direct = {**render_tls, "sslnegotiation": "direct"}
     render_plain = {"sslmode": "disable", "gssencmode": "disable", "channel_binding": "disable"}
     if is_render_postgres_host(host):
         # Never sslmode=prefer: libpq starts TLS, Render closes, error is "SSL closed unexpectedly".
-        # Short dpg-… host is private DNS only; if it does not resolve, use
-        # dpg-….{region}-postgres.render.com (public DNS + TLS).
+        # Short dpg-… host is private DNS only. Public host uses sslnegotiation=direct
+        # first (libpq 17+ / TLS terminator), then classic SSLRequest.
         for variant in expand_render_postgres_url(url):
             variant_host = _hostname(variant)
             if is_render_internal_host(variant_host):
                 add(_with_query_params(variant, **render_plain))
                 add(_with_query_params(variant, **render_tls))
             else:
+                add(_with_query_params(variant, **render_tls_direct))
                 add(_with_query_params(variant, **render_tls))
         return out
     if host.endswith(".railway.internal"):
@@ -548,9 +795,17 @@ def handshake_database_url(database_url: str, *, connect_timeout: int = 8) -> st
         if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
             last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
             log.warning(
-                "Postgres host %s did not resolve; trying dpg-….region-postgres.render.com next.",
+                "Postgres host %s did not resolve; trying hostaddr / public hostname next.",
                 host,
             )
+            for alt in _conninfo_with_hostaddrs(conninfo):
+                try:
+                    with psycopg.connect(alt, connect_timeout=connect_timeout) as conn:
+                        conn.execute("SELECT 1")
+                    return alt
+                except Exception as exc:  # noqa: BLE001 — try the next TLS mode
+                    last_exc = exc
+                    log.warning("Postgres handshake failed host=%s hostaddr fallback (%s).", host, exc)
             continue
         try:
             with psycopg.connect(conninfo, connect_timeout=connect_timeout) as conn:
@@ -578,7 +833,15 @@ def postgres_connect(database_url: str, **kwargs):
         _h, port, _user, _password, _path, _query = _split_postgres_url(conninfo)
         if host and not is_loopback_host(host) and not postgres_host_resolves(host, port or "5432"):
             last_exc = OSError(f"failed to resolve host '{host}': Name or service not known")
-            log.warning("Postgres host %s did not resolve; trying public Render hostname next.", host)
+            log.warning("Postgres host %s did not resolve; trying hostaddr / public hostname next.", host)
+            for alt in _conninfo_with_hostaddrs(conninfo):
+                try:
+                    options = dict(kwargs)
+                    options.setdefault("connect_timeout", timeout)
+                    return psycopg.connect(alt, **options)
+                except Exception as exc:  # noqa: BLE001 — try the next TLS mode
+                    last_exc = exc
+                    log.warning("Postgres connect failed host=%s hostaddr fallback (%s).", host, exc)
             continue
         try:
             options = dict(kwargs)
@@ -627,14 +890,14 @@ def try_postgres(
 
 def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> PostgresRepository:
     """Retry until Postgres accepts connections or the wait budget is spent."""
-    env_url = normalize_database_url(env_lookup("RENDER_DATABASE_URL") or env_lookup("DATABASE_URL") or "")
-    cfg.database_url = resolve_database_url(env_url or cfg.database_url)
+    pinned = apply_hosted_database_env()
+    cfg.database_url = resolve_database_url(pinned or cfg.database_url)
     host = _hostname(cfg.database_url)
     urls = iter_database_urls(cfg.database_url)
     if cfg.require_postgres and on_hosted_platform():
         remote = [item for item in urls if not is_loopback_host(_hostname(item))]
         if not remote:
-            if is_loopback_host(_hostname(env_url)):
+            if _loopback_database_url_ignored or is_loopback_host(host):
                 raise PostgresRequiredError(HOSTED_LOCAL_URL)
             raise PostgresRequiredError(HOSTED_INVALID_URL)
     budget = cfg.postgres_wait_seconds if total_seconds is None else total_seconds
@@ -694,6 +957,7 @@ def connect_store(cfg: Settings) -> DocumentRepository:
 
     When `require_postgres` is true (Render), wait then fail hard — never pickle.
     """
+    apply_hosted_database_env()
     cfg.database_url = resolve_database_url(cfg.database_url)
     if cfg.require_postgres:
         return wait_for_postgres(cfg)
