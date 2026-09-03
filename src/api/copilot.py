@@ -217,12 +217,12 @@ class CopilotService:
         if name == "get_metrics_overview":
             return self.query.overview(filters)
         if name == "get_metrics_themes":
-            return self.query.themes(filters)
+            return self.query.themes(filters, include_sparklines=False)
         if name == "get_metrics_segments":
             dimension = args.get("dimension") or "product_category"
             return self.query.segments(filters, dimension=str(dimension))
         if name == "get_evidence":
-            return self.query.evidence(filters)
+            return self.query.evidence(filters, limit=40)
         if name == "search_chunks":
             query_text = str(args.get("query") or "")
             if not query_text.strip():
@@ -289,7 +289,7 @@ class CopilotService:
             pack["overview"] = self._safe_tool("get_metrics_overview", {}, filters, used)
         else:
             pack["overview"] = {"empty": False, "filters": filters.as_dict()}
-        if need_counts or intent is QuestionIntent.comparative or "segment" in blob:
+        if intent is QuestionIntent.comparative or "segment" in blob:
             pack["segments"] = self._safe_tool(
                 "get_metrics_segments", {"dimension": "product_category"}, filters, used
             )
@@ -368,7 +368,7 @@ class CopilotService:
                 logger.exception("copilot prefetch failed")
                 tools_used, pack = [], {}
             try:
-                pack["retrieval_rows"] = retrieve_quotes(self.repo, question, limit=16)
+                pack["retrieval_rows"] = retrieve_quotes(self.repo, question, limit=8)
                 if pack["retrieval_rows"]:
                     pack["evidence"] = {
                         "rows": pack["retrieval_rows"],

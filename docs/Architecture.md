@@ -1,8 +1,10 @@
 # Architecture
 
 **Project:** AI-Powered Discovery Engine for Myntra Wishlist Behavior  
-**Companion doc:** [problemStatement.md](./problemStatement.md)  
+**Companion docs:** [problemStatement.md](./problemStatement.md), [ImplementationPlan.md](./ImplementationPlan.md)  
 **Status:** Target architecture for the research prototype (not a production-scale scraping platform)
+
+**Model stack (locked):** generation = **Groq only**. Vectors = local **BGE** (`BAAI/bge-m3`, 1024-d). Do not use OpenAI chat or OpenAI embedding models. This supersedes problem-statement mentions of Claude / GPT as the LLM.
 
 ---
 
@@ -83,7 +85,7 @@ The engine does **not** connect to Myntra internal analytics (funnel, wishlist c
    - **Relational (Postgres):** documents, tags, themes, metrics, scores.  
    - **Vector:** chunk embeddings for semantic retrieval.  
    Both surfaces read the same IDs; the chatbot must not invent numbers that the dashboard cannot reproduce.
-3. **Hybrid answering.** Comparative / quantitative questions hit **SQL aggregates**. Open-ended “why” questions hit **retrieval + structured filters**, then the LLM cites both quotes and counts.
+3. **Hybrid answering.** Comparative / quantitative questions hit **SQL aggregates**. Open-ended “why” questions hit **retrieval + structured filters**, then **Groq** cites both quotes and counts.
 4. **Thin evidence → refuse or caveat.** Below confidence thresholds the Copilot declines a firm answer rather than filling gaps.
 5. **Bookmark vs stall is a first-class split.** `intent_mode` (near-term purchase vs passive bookmark / inspiration) is extracted and stored separately from `friction_tag`.
 6. **Privacy at the analysis boundary.** Usernames and other PII are hashed or dropped **before** enrichment and embeddings. Raw blobs may keep a hashed author id for dedup only.
@@ -158,8 +160,8 @@ Choices below are **defaults for a working prototype**. Swap vector DB without c
 | Object store | Local disk / S3-compatible bucket | Immutable raw JSON/HTML snapshots |
 | System of record | **PostgreSQL** | Analytics SQL + optional **pgvector** |
 | Vector search | **pgvector** (same DB) or Chroma if isolating vectors | Prototype simplicity; Pinecone only if embedding volume outgrows Postgres |
-| Embeddings | **BGE** (`BAAI/bge-m3`) via `sentence-transformers` / FlagEmbedding, **local** | Multilingual dense vectors for Hinglish; no OpenAI embedding API |
-| Extraction / Copilot / reports LLM | **Groq Cloud** (OpenAI-compatible API) + JSON schema / tool calling | Fast batch extraction and grounded generation; model id is config |
+| Embeddings | **BGE** (`BAAI/bge-m3`) via `sentence-transformers` / FlagEmbedding, **local** | Replaces OpenAI `text-embedding-*`. Multilingual dense vectors for Hinglish. |
+| Extraction / Copilot / reports LLM | **Groq Cloud** + JSON schema / tool calling | Replaces Claude / GPT-host. Groq’s HTTP API is OpenAI-*compatible*; the host is Groq, not OpenAI. |
 | Clustering | BGE embeddings + **HDBSCAN** (k-means fallback for tiny corpora) | Variable theme count; noise cluster for anecdotes |
 | Dashboard | **Next.js (App Router) + TypeScript** in `web/` | One product UI for Copilot + all Surface B views. Not Streamlit; not Metabase-as-the-app. |
 | Copilot API | **FastAPI** Query API (`src/api`) | Query embedding with BGE; generation + tools on Groq. Frontend is a client of this API. |
@@ -173,7 +175,7 @@ All generation goes through **Groq**. All vectors are **BGE**, computed in-proce
 | --- | --- | --- |
 | Groq — extraction, Copilot | `openai/gpt-oss-120b` | **Groq-hosted** model id (not the OpenAI API). Stronger structured JSON and tool use. Override via `GROQ_MODEL`. |
 | Groq — theme labels, weekly report | `openai/gpt-oss-20b` | **Groq-hosted** light model. Cheaper/faster; same grounding rules. Override via `GROQ_MODEL_LIGHT`. |
-| Groq API | `https://api.groq.com/openai/v1` | Use the official OpenAI SDK with this `base_url` + `GROQ_API_KEY`. |
+| Groq API | `https://api.groq.com/openai/v1` | OpenAI-*compatible* HTTP. Use `GROQ_API_KEY` only. Do **not** call `api.openai.com` for chat or embeddings. |
 | Embedding | `BAAI/bge-m3` | Dense dim **1024**. Store as `vector(1024)` in pgvector. L2-normalize before insert (cosine). |
 | Embedding runtime | Hugging Face weights, local CPU (GPU optional) | First run downloads the model (~2GB). Cache under `HF_HOME` / `./data/models`. |
 
@@ -253,7 +255,7 @@ Connectors should be driven by a versioned `ingest_queries` table (editable with
 
 ## 7. Normalization and enrichment
 
-Pipeline is **deterministic first, LLM second**. Language and PII should not depend on a chatty model when a classifier or regex suffices.
+Pipeline is **deterministic first, Groq second**. Language and PII should not depend on a chatty model when a classifier or regex suffices.
 
 ```mermaid
 flowchart LR

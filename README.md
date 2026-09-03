@@ -6,6 +6,11 @@ Research prototype: ingest public Myntra conversation data, structure it, and (l
 
 **Deploy:** FastAPI Query API and Next.js dashboard are two [Vercel](https://vercel.com) projects from [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine). Postgres + pgvector lives on [Neon](https://neon.tech) (Vercel Marketplace). See [docs/deployment-plan.md](docs/deployment-plan.md).
 
+| Surface | Live URL |
+| ------- | -------- |
+| Dashboard | https://myntra-ai-engine-web.vercel.app |
+| Query API | https://myntra-ai-engine-server.vercel.app |
+
 ## Setup
 
 ```powershell

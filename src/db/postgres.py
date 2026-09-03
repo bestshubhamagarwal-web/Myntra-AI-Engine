@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
+from threading import Lock
 from typing import Any, Sequence
 from uuid import UUID
 
@@ -28,19 +30,108 @@ from src.db.repository import (
 from src.models.envelope import MyntraRelevance, RawEnvelope, SourceType
 from src.timeutil import as_uuid, coerce_aware
 
+# Reuse warm Neon/TLS sessions across Query API calls in one Vercel isolate.
+_POOLS: dict[str, "_ConnPool"] = {}
+_POOLS_LOCK = Lock()
+_POOL_MAX = 4
+
+
+class _PooledCheckout:
+    """Context manager that returns a live connection to the pool on exit."""
+
+    __slots__ = ("_pool", "_conn")
+
+    def __init__(self, pool: "_ConnPool") -> None:
+        self._pool = pool
+        self._conn: psycopg.Connection | None = None
+
+    def __enter__(self) -> psycopg.Connection:
+        self._conn = self._pool.acquire()
+        return self._conn
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        conn = self._conn
+        self._conn = None
+        if conn is None:
+            return None
+        try:
+            conn.rollback()
+        except Exception:
+            self._pool.discard(conn)
+            return None
+        self._pool.release(conn)
+        return None
+
+
+class _ConnPool:
+    def __init__(self, database_url: str, *, max_size: int = _POOL_MAX) -> None:
+        self.database_url = database_url
+        self.max_size = max_size
+        self._lock = Lock()
+        self._idle: list[psycopg.Connection] = []
+
+    def _open(self) -> psycopg.Connection:
+        from src.db.connect import open_psycopg, postgres_connect
+
+        try:
+            return open_psycopg(
+                self.database_url,
+                row_factory=dict_row,
+                connect_timeout=8,
+            )
+        except Exception:
+            return postgres_connect(
+                self.database_url,
+                row_factory=dict_row,
+                connect_timeout=8,
+            )
+
+    def acquire(self) -> psycopg.Connection:
+        with self._lock:
+            while self._idle:
+                conn = self._idle.pop()
+                if not conn.closed:
+                    return conn
+        return self._open()
+
+    def release(self, conn: psycopg.Connection) -> None:
+        if conn.closed:
+            return
+        with self._lock:
+            if len(self._idle) < self.max_size:
+                self._idle.append(conn)
+                return
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    def discard(self, conn: psycopg.Connection) -> None:
+        try:
+            if not conn.closed:
+                conn.close()
+        except Exception:
+            pass
+
+    def connection(self) -> _PooledCheckout:
+        return _PooledCheckout(self)
+
+
+def _pool_for(database_url: str) -> _ConnPool:
+    with _POOLS_LOCK:
+        pool = _POOLS.get(database_url)
+        if pool is None:
+            pool = _ConnPool(database_url)
+            _POOLS[database_url] = pool
+        return pool
+
 
 class PostgresRepository:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
 
-    def connect(self) -> psycopg.Connection:
-        from src.db.connect import postgres_connect
-
-        return postgres_connect(
-            self.database_url,
-            row_factory=dict_row,
-            connect_timeout=8,
-        )
+    def connect(self) -> _PooledCheckout:
+        return _pool_for(self.database_url).connection()
 
     def is_enabled(self, source_type: str) -> bool:
         with self.connect() as conn:
@@ -220,6 +311,46 @@ class PostgresRepository:
                 "SELECT * FROM raw_documents WHERE id = %s", (str(raw_id),)
             ).fetchone()
         return _row_to_envelope(row) if row else None
+
+    def get_raw_batch(self, raw_ids: set) -> dict[Any, RawEnvelope]:
+        ids = [str(raw_id) for raw_id in raw_ids if raw_id]
+        if not ids:
+            return {}
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM raw_documents WHERE id = ANY(%s::uuid[])",
+                (ids,),
+            ).fetchall()
+        return {as_uuid(row["id"]): _row_to_envelope(row) for row in rows}
+
+    def list_normalized_matching(
+        self,
+        patterns: list[str],
+        *,
+        eligible_only: bool = True,
+        limit: int = 400,
+    ) -> list[NormalizedRecord]:
+        cleaned = [item.strip() for item in patterns if (item or "").strip()]
+        # Cap OR clauses — many ILIKE arms force sequential scans on Neon.
+        cleaned = sorted(cleaned, key=len, reverse=True)[:6]
+        if not cleaned or limit <= 0:
+            return []
+        # One regex is cheaper than N independent ILIKE predicates.
+        pattern = "|".join(re.escape(item) for item in cleaned)
+        sql = """
+            SELECT n.*
+            FROM normalized_documents n
+            JOIN raw_documents r ON r.id = n.raw_id
+            WHERE n.text_original ~* %s
+        """
+        params: list[Any] = [pattern]
+        if eligible_only:
+            sql += " AND n.eligible IS TRUE"
+        sql += " ORDER BY n.pii_scrubbed_at DESC LIMIT %s"
+        params.append(limit)
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [_row_to_normalized(r) for r in rows]
 
     def list_raw(
         self,
@@ -468,6 +599,358 @@ class PostgresRepository:
             else:
                 row = conn.execute("SELECT COUNT(*) AS n FROM normalized_documents").fetchone()
         return int(row["n"]) if row else 0
+
+    def overview_aggregates(self) -> dict[str, Any]:
+        """Fast SQL aggregates for unfiltered overview (Vercel timeout safe)."""
+        base = """
+            FROM normalized_documents n
+            JOIN raw_documents r ON r.id = n.raw_id
+            LEFT JOIN extractions e ON e.document_id = n.id
+            WHERE n.eligible IS TRUE AND n.duplicate_of IS NULL
+        """
+        with self.connect() as conn:
+            eligible = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS n {base}",
+                ).fetchone()["n"]
+            )
+            by_source_rows = conn.execute(
+                f"""
+                SELECT r.source_type, COUNT(*) AS n
+                {base}
+                GROUP BY r.source_type
+                ORDER BY r.source_type
+                """
+            ).fetchall()
+            hist_rows = conn.execute(
+                f"""
+                SELECT
+                    CONCAT(
+                        to_char(COALESCE(n.review_date, r.published_at), 'IYYY'),
+                        '-W',
+                        lpad(to_char(COALESCE(n.review_date, r.published_at), 'IW'), 2, '0')
+                    ) AS bucket,
+                    COUNT(*) AS n
+                {base}
+                  AND COALESCE(n.review_date, r.published_at) IS NOT NULL
+                GROUP BY 1
+                ORDER BY 1
+                """
+            ).fetchall()
+            tag_rows = conn.execute(
+                f"""
+                SELECT COALESCE(e.intent_tag, 'unknown') AS tag, COUNT(*) AS n
+                {base}
+                GROUP BY 1
+                ORDER BY 1
+                """
+            ).fetchall()
+            mode_rows = conn.execute(
+                f"""
+                SELECT COALESCE(e.intent_mode, n.intent_mode, 'unknown') AS mode, COUNT(*) AS n
+                {base}
+                GROUP BY 1
+                ORDER BY 1
+                """
+            ).fetchall()
+            raw_count = int(conn.execute("SELECT COUNT(*) AS n FROM raw_documents").fetchone()["n"])
+            normalized_count = int(
+                conn.execute("SELECT COUNT(*) AS n FROM normalized_documents").fetchone()["n"]
+            )
+            status_rows = conn.execute(
+                "SELECT * FROM source_status ORDER BY source_type"
+            ).fetchall()
+            pull_rows = conn.execute(
+                """
+                SELECT DISTINCT ON (source_type)
+                    source_type,
+                    COALESCE(finished_at, started_at) AS pulled_at
+                FROM ingest_runs
+                WHERE status = 'success'
+                ORDER BY source_type, COALESCE(finished_at, started_at) DESC
+                """
+            ).fetchall()
+            latest_run = conn.execute(
+                """
+                SELECT *
+                FROM ingest_runs
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            cluster = conn.execute(
+                """
+                SELECT *
+                FROM cluster_runs
+                WHERE status = 'success'
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        return {
+            "eligible_corpus_count": eligible,
+            "eligible_by_source": {row["source_type"]: int(row["n"]) for row in by_source_rows},
+            "date_histogram": [
+                {"bucket": row["bucket"], "count": int(row["n"])} for row in hist_rows if row["bucket"]
+            ],
+            "intent_tag_counts": {row["tag"]: int(row["n"]) for row in tag_rows},
+            "intent_mode_counts": {row["mode"]: int(row["n"]) for row in mode_rows},
+            "raw_count": raw_count,
+            "normalized_count": normalized_count,
+            "source_statuses": [
+                SourceStatus(
+                    source_type=r["source_type"],
+                    status=r["status"],
+                    enabled=r["enabled"],
+                    notes=r["notes"],
+                    last_run_id=as_uuid(r["last_run_id"]) if r["last_run_id"] else None,
+                    last_run_status=r["last_run_status"],
+                    last_run_finished_at=coerce_aware(r["last_run_finished_at"]),
+                    last_rows_fetched=r["last_rows_fetched"],
+                    last_source_available=r["last_source_available"],
+                    raw_count=int(r["raw_count"]) if r.get("raw_count") is not None else 0,
+                    normalized_count=int(r["normalized_count"])
+                    if r.get("normalized_count") is not None
+                    else 0,
+                )
+                for r in status_rows
+            ],
+            "last_successful_pulls": {
+                row["source_type"]: coerce_aware(row["pulled_at"]) for row in pull_rows
+            },
+            "latest_ingest_run": _row_to_ingest_run(latest_run) if latest_run else None,
+            "latest_cluster_run": _row_to_cluster_run(cluster) if cluster else None,
+        }
+
+    def first_chunk_ids(self, document_ids: set[UUID]) -> dict[UUID, UUID]:
+        """Map document_id → first chunk id (ordinal ASC) in one round-trip."""
+        ids = [str(doc_id) for doc_id in document_ids if doc_id]
+        if not ids:
+            return {}
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT ON (document_id) document_id, id
+                FROM chunks
+                WHERE document_id = ANY(%s::uuid[])
+                ORDER BY document_id, ordinal ASC
+                """,
+                (ids,),
+            ).fetchall()
+        return {as_uuid(row["document_id"]): as_uuid(row["id"]) for row in rows}
+
+    def segment_cross_tab(
+        self,
+        *,
+        cluster_run_id: UUID,
+        dimension: str,
+    ) -> list[dict[str, Any]]:
+        """Theme × segment mention counts without loading the full corpus into Python."""
+        col_map = {
+            "gender_segment": "COALESCE(NULLIF(n.gender_segment, ''), 'unknown')",
+            "price_tier": "COALESCE(NULLIF(n.price_tier, ''), 'unknown')",
+            "platform_used": "COALESCE(NULLIF(n.platform_used, ''), 'unknown')",
+        }
+        segment_expr = col_map.get(dimension)
+        if segment_expr is None:
+            return []
+        with self.connect() as conn:
+            denom_rows = conn.execute(
+                f"""
+                SELECT {segment_expr} AS segment, COUNT(*) AS n
+                FROM normalized_documents n
+                WHERE n.eligible IS TRUE AND n.duplicate_of IS NULL
+                GROUP BY 1
+                """
+            ).fetchall()
+            mention_rows = conn.execute(
+                f"""
+                SELECT
+                    dt.theme_id,
+                    {segment_expr} AS segment,
+                    COUNT(*) AS n
+                FROM document_themes dt
+                JOIN normalized_documents n ON n.id = dt.document_id
+                WHERE dt.cluster_run_id = %s
+                  AND n.eligible IS TRUE
+                  AND n.duplicate_of IS NULL
+                GROUP BY dt.theme_id, 2
+                """,
+                (str(cluster_run_id),),
+            ).fetchall()
+        denom = {str(row["segment"] or "unknown"): int(row["n"]) for row in denom_rows}
+        # Ensure unknown is always present for the UI contract.
+        if "unknown" not in denom:
+            denom["unknown"] = 0
+        out: list[dict[str, Any]] = []
+        for row in mention_rows:
+            segment = str(row["segment"] or "unknown")
+            out.append(
+                {
+                    "theme_id": as_uuid(row["theme_id"]),
+                    "segment": segment,
+                    "mention_count": int(row["n"]),
+                    "eligible_corpus_count": int(denom.get(segment, 0)),
+                }
+            )
+        # Emit zero cells for themes × missing unknown when needed by callers? Heatmap
+        # builds from returned cells only — unknown column is forced via unknown_visible.
+        return out
+
+    def list_evidence_rows(
+        self,
+        *,
+        cluster_run_id: UUID | None,
+        theme_id: UUID | None = None,
+        source_type: str | None = None,
+        product_category: str | None = None,
+        gender_segment: str | None = None,
+        price_tier: str | None = None,
+        platform_used: str | None = None,
+        intent_mode: str | None = None,
+        q: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Capped evidence join for dashboard tabs (avoids full-corpus Python scans)."""
+        from src.normalize.pii import scrub_pii
+
+        intent_aliases = {
+            "bookmark": ["bookmark", "passive_bookmark"],
+            "passive_bookmark": ["bookmark", "passive_bookmark"],
+            "stall": ["stall", "near_term_purchase"],
+            "near_term_purchase": ["stall", "near_term_purchase"],
+            "unclear": ["unclear", "unknown", "mixed"],
+            "unknown": ["unclear", "unknown", "mixed"],
+            "mixed": ["mixed", "unclear"],
+        }
+
+        sql = """
+            SELECT
+                n.id AS document_id,
+                n.text_original,
+                n.product_category,
+                n.intent_mode AS doc_intent_mode,
+                r.source_type,
+                r.url,
+                COALESCE(n.review_date, r.published_at) AS published_at,
+                e.intent_mode AS ext_intent_mode,
+                e.intent_tag,
+                e.friction_tags,
+                e.sentiment_primary,
+                e.maps_to_questions,
+                e.verbatim_quotes,
+                dt.theme_id,
+                t.name AS theme_name,
+                c.id AS chunk_id
+            FROM normalized_documents n
+            JOIN raw_documents r ON r.id = n.raw_id
+            LEFT JOIN extractions e ON e.document_id = n.id
+            LEFT JOIN document_themes dt
+                ON dt.document_id = n.id
+               AND (%s::uuid IS NULL OR dt.cluster_run_id = %s::uuid)
+               AND (%s::uuid IS NULL OR dt.theme_id = %s::uuid)
+            LEFT JOIN themes t ON t.id = dt.theme_id AND t.published IS TRUE
+            LEFT JOIN LATERAL (
+                SELECT id FROM chunks
+                WHERE document_id = n.id
+                ORDER BY ordinal ASC
+                LIMIT 1
+            ) c ON TRUE
+            WHERE n.eligible IS TRUE AND n.duplicate_of IS NULL
+        """
+        params: list[Any] = [
+            str(cluster_run_id) if cluster_run_id else None,
+            str(cluster_run_id) if cluster_run_id else None,
+            str(theme_id) if theme_id else None,
+            str(theme_id) if theme_id else None,
+        ]
+        if theme_id is not None:
+            sql += " AND dt.theme_id = %s"
+            params.append(str(theme_id))
+        if source_type:
+            sql += " AND r.source_type = %s"
+            params.append(source_type)
+        if product_category:
+            sql += " AND COALESCE(n.product_category, 'unknown') = %s"
+            params.append(product_category)
+        if gender_segment:
+            sql += " AND COALESCE(n.gender_segment, 'unknown') = %s"
+            params.append(gender_segment)
+        if price_tier:
+            sql += " AND COALESCE(NULLIF(n.price_tier, ''), 'unknown') = %s"
+            params.append(price_tier)
+        if platform_used:
+            sql += " AND COALESCE(n.platform_used, 'unknown') = %s"
+            params.append(platform_used)
+        if intent_mode:
+            aliases = sorted(intent_aliases.get(intent_mode, [intent_mode]))
+            sql += (
+                " AND COALESCE(e.intent_mode, n.intent_mode, 'unknown') = ANY(%s::text[])"
+            )
+            params.append(aliases)
+        if q and q.strip():
+            sql += " AND n.text_original ILIKE %s"
+            params.append(f"%{q.strip()}%")
+        sql += " ORDER BY COALESCE(n.review_date, r.published_at) DESC NULLS LAST LIMIT %s"
+        # Over-fetch a bit so quote expansion still fills the requested limit.
+        params.append(max(limit * 3, limit))
+
+        with self.connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        out: list[dict[str, Any]] = []
+        seen: set[tuple[str, str | None, str]] = set()
+        for row in rows:
+            quotes: list[str] = []
+            verbatim = row.get("verbatim_quotes") or []
+            if isinstance(verbatim, list):
+                for item in verbatim:
+                    if isinstance(item, dict):
+                        span = item.get("span") or item.get("text")
+                        if span:
+                            quotes.append(str(span))
+            if not quotes:
+                text = (row.get("text_original") or "").strip()
+                if text:
+                    quotes.append(text[:280])
+            doc_id = str(as_uuid(row["document_id"]))
+            theme_uuid = as_uuid(row["theme_id"]) if row.get("theme_id") else None
+            theme_id_s = str(theme_uuid) if theme_uuid else None
+            chunk_id = str(as_uuid(row["chunk_id"])) if row.get("chunk_id") else None
+            url = row.get("url")
+            published = coerce_aware(row.get("published_at"))
+            published_s = published.date().isoformat() if published else None
+            friction = row.get("friction_tags") or []
+            maps = row.get("maps_to_questions") or []
+            for quote in quotes:
+                if q and q.lower() not in quote.lower():
+                    continue
+                key = (doc_id, theme_id_s, quote)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(
+                    {
+                        "document_id": doc_id,
+                        "chunk_id": chunk_id,
+                        "theme_id": theme_id_s,
+                        "theme_name": row.get("theme_name"),
+                        "quote": scrub_pii(quote),
+                        "source_type": row.get("source_type") or "unknown",
+                        "url": url,
+                        "link_unavailable": not bool(url and str(url).strip()),
+                        "published_at": published_s,
+                        "product_category": row.get("product_category"),
+                        "intent_mode": row.get("ext_intent_mode") or row.get("doc_intent_mode"),
+                        "intent_tag": row.get("intent_tag"),
+                        "friction_tags": list(friction) if isinstance(friction, list) else [],
+                        "sentiment": row.get("sentiment_primary"),
+                        "maps_to_questions": list(maps) if isinstance(maps, list) else [],
+                    }
+                )
+                if len(out) >= limit:
+                    return out
+        return out
 
     def list_source_status(self) -> list[SourceStatus]:
         with self.connect() as conn:

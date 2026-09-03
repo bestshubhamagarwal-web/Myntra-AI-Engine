@@ -36,6 +36,7 @@ from src.normalize.spotcheck import (
     spotcheck_text_failures,
 )
 from src.reports.pipeline import run_report
+from src.db.sync_local import load_local_store, sync_local_to_postgres
 from src.smoke import smoke_db
 
 
@@ -73,6 +74,37 @@ def cmd_migrate(_args: argparse.Namespace) -> int:
     )
     print("unique:", check.unique_constraint)
     print("embedding:", check.embedding_type)
+    return 0
+
+
+def cmd_sync_postgres(args: argparse.Namespace) -> int:
+    """Push laptop pickle corpus into Neon so the hosted Query API can serve reviews."""
+    settings = load_settings()
+    settings.require_postgres = True
+    settings.ensure_runtime_dirs()
+    if _wait_for_required_postgres(settings) != 0:
+        return 1
+    applied = apply_migrations(settings.database_url)
+    if applied:
+        print("applied:", ", ".join(applied))
+    repo = connect_store(settings)
+    if not isinstance(repo, PostgresRepository):
+        print("sync-postgres requires a reachable Postgres DATABASE_URL (Neon).", file=sys.stderr)
+        return 1
+    local_path = Path(args.local_store) if args.local_store else settings.local_store_path
+    if not local_path.is_file():
+        print(f"local store not found: {local_path}", file=sys.stderr)
+        return 1
+    local = load_local_store(local_path)
+
+    def progress(label: str, done: int, total: int) -> None:
+        if done == total or done % 1000 == 0:
+            print(f"{label}: {done}/{total}")
+
+    counts = sync_local_to_postgres(local, repo, progress=progress)
+    print("synced:", ", ".join(f"{key}={value}" for key, value in sorted(counts.items())))
+    print("raw_count:", repo.count_raw())
+    print("normalized_count:", repo.count_normalized())
     return 0
 
 
@@ -691,6 +723,18 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("migrate", help="Apply SQL migrations and verify foundation tables").set_defaults(
         func=cmd_migrate
     )
+
+    sync = sub.add_parser(
+        "sync-postgres",
+        help="Copy local_store.pkl into Neon Postgres for the Vercel Query API",
+    )
+    sync.add_argument(
+        "--local-store",
+        dest="local_store",
+        default=None,
+        help="Pickle path (default: LOCAL_STORE_PATH / data/local_store.pkl)",
+    )
+    sync.set_defaults(func=cmd_sync_postgres)
 
     smoke = sub.add_parser("smoke", help="Postgres + Groq + BGE-M3 foundation checks")
     smoke.add_argument("--skip-db", action="store_true", help="Skip Postgres foundation check")

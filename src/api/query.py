@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any
@@ -40,6 +41,9 @@ SEGMENT_DIMENSIONS = (
     "platform_used",
 )
 
+# Always surface store connectors on Overview/Sources even before the first Neon ingest.
+OPERATOR_SOURCE_TYPES = frozenset({"play_store", "app_store"})
+
 INTENT_ALIASES: dict[str, set[str]] = {
     "bookmark": {"bookmark", "passive_bookmark"},
     "passive_bookmark": {"bookmark", "passive_bookmark"},
@@ -49,6 +53,26 @@ INTENT_ALIASES: dict[str, set[str]] = {
     "unknown": {"unclear", "unknown", "mixed"},
     "mixed": {"mixed", "unclear"},
 }
+
+# Short in-process cache for unfiltered dashboard GETs (warm Vercel isolates).
+_METRICS_CACHE: dict[str, tuple[float, Any]] = {}
+_METRICS_CACHE_TTL_S = 45.0
+
+
+def _metrics_cache_get(key: str) -> Any | None:
+    hit = _METRICS_CACHE.get(key)
+    if hit is None:
+        return None
+    expires, payload = hit
+    if time.monotonic() >= expires:
+        _METRICS_CACHE.pop(key, None)
+        return None
+    return payload
+
+
+def _metrics_cache_set(key: str, payload: Any) -> Any:
+    _METRICS_CACHE[key] = (time.monotonic() + _METRICS_CACHE_TTL_S, payload)
+    return payload
 
 
 def _source_value(raw) -> str:
@@ -138,6 +162,9 @@ class QueryService:
         if isinstance(stored, dict):
             return stored
         needed = {rec.raw_id for rec in docs}
+        batch = getattr(self.repo, "get_raw_batch", None)
+        if batch is not None:
+            return batch(needed)
         out: dict[UUID, Any] = {}
         for env in self.repo.list_raw():
             if env.id in needed:
@@ -251,26 +278,71 @@ class QueryService:
         return False
 
     def overview(self, filters: GlobalFilters) -> dict[str, Any]:
-        run = self._cluster_run()
-        matched = self.matching_docs(filters)
-        extractions = self._extraction_map()
-        statuses = self.repo.list_source_status()
+        from src.db.postgres import PostgresRepository
+
+        cacheable = not _filters_need_scan(filters) and isinstance(self.repo, PostgresRepository)
+        cache_key = f"overview:unfiltered:{id(self.repo)}"
+        if cacheable:
+            cached = _metrics_cache_get(cache_key)
+            if cached is not None:
+                return cached
+        aggregates = None
+        if not _filters_need_scan(filters):
+            fast = getattr(self.repo, "overview_aggregates", None)
+            if fast is not None:
+                aggregates = fast()
+
+        if aggregates is not None and aggregates.get("latest_cluster_run") is not None:
+            run = aggregates.get("latest_cluster_run")
+        else:
+            run = self._cluster_run()
+
+        if aggregates is not None and aggregates.get("source_statuses") is not None:
+            statuses = aggregates["source_statuses"]
+        else:
+            statuses = self.repo.list_source_status()
         unavailable = unavailable_source_types(statuses, dashboard=True)
-        eligible_by_source: Counter[str] = Counter()
-        histogram: Counter[str] = Counter()
-        intent_tags: Counter[str] = Counter()
-        intent_modes: Counter[str] = Counter()
-        for rec, raw in matched:
-            eligible_by_source[_source_value(raw)] += 1
-            bucket = iso_week_bucket(_doc_ts(rec, raw))
-            if bucket:
-                histogram[bucket] += 1
-            extraction = extractions.get(rec.id)
-            if extraction:
-                intent_tags[extraction.intent_tag or "unknown"] += 1
-                intent_modes[extraction.intent_mode or rec.intent_mode or "unknown"] += 1
-            else:
-                intent_modes[rec.intent_mode or "unknown"] += 1
+
+        if aggregates is not None:
+            eligible_by_source = aggregates["eligible_by_source"]
+            histogram = aggregates["date_histogram"]
+            intent_tags = aggregates["intent_tag_counts"]
+            intent_modes = aggregates["intent_mode_counts"]
+            eligible_count = aggregates["eligible_corpus_count"]
+            empty = eligible_count == 0
+            raw_count = aggregates.get("raw_count")
+            normalized_count = aggregates.get("normalized_count")
+            pulls = aggregates.get("last_successful_pulls") or {}
+            latest_ingest_run = aggregates.get("latest_ingest_run")
+        else:
+            matched = self.matching_docs(filters)
+            extractions = self._extraction_map()
+            eligible_by_source: Counter[str] = Counter()
+            histogram_list: Counter[str] = Counter()
+            intent_tags: Counter[str] = Counter()
+            intent_modes: Counter[str] = Counter()
+            for rec, raw in matched:
+                eligible_by_source[_source_value(raw)] += 1
+                bucket = iso_week_bucket(_doc_ts(rec, raw))
+                if bucket:
+                    histogram_list[bucket] += 1
+                extraction = extractions.get(rec.id)
+                if extraction:
+                    intent_tags[extraction.intent_tag or "unknown"] += 1
+                    intent_modes[extraction.intent_mode or rec.intent_mode or "unknown"] += 1
+                else:
+                    intent_modes[rec.intent_mode or "unknown"] += 1
+            histogram = [
+                {"bucket": key, "count": histogram_list[key]} for key in sorted(histogram_list)
+            ]
+            eligible_count = len(matched)
+            empty = len(matched) == 0
+            intent_tags = dict(intent_tags)
+            intent_modes = dict(intent_modes)
+            raw_count = None
+            normalized_count = None
+            pulls = {}
+            latest_ingest_run = None
 
         counts_by_source = []
         included: list[str] = []
@@ -279,8 +351,20 @@ class QueryService:
             eligible_n = int(eligible_by_source.get(status.source_type, 0))
             if live:
                 included.append(status.source_type)
-            if not live and status.raw_count <= 0 and eligible_n <= 0:
+            if (
+                not live
+                and status.raw_count <= 0
+                and eligible_n <= 0
+                and (
+                    status.source_type not in OPERATOR_SOURCE_TYPES
+                    or not status.enabled
+                )
+            ):
                 continue
+            pull_at = pulls.get(status.source_type) if pulls else None
+            last_pull = _iso(pull_at) if pull_at is not None else self._last_successful_pull(
+                status.source_type
+            )
             counts_by_source.append(
                 {
                     "source_type": status.source_type,
@@ -291,15 +375,14 @@ class QueryService:
                     "eligible_count": eligible_n,
                     "volume_is_current": live,
                     "last_run_status": status.last_run_status,
-                    "last_successful_pull": self._last_successful_pull(status.source_type),
+                    "last_successful_pull": last_pull,
                     "notes": status.notes,
                 }
             )
 
         last_ingest = None
-        all_runs = self.repo.list_ingest_runs()
-        if all_runs:
-            latest = all_runs[0]
+        if latest_ingest_run is not None:
+            latest = latest_ingest_run
             last_ingest = {
                 "id": str(latest.id),
                 "source_type": latest.source_type,
@@ -307,40 +390,65 @@ class QueryService:
                 "finished_at": _iso(latest.finished_at or latest.started_at),
                 "source_available": latest.source_available,
             }
+        else:
+            all_runs = self.repo.list_ingest_runs()
+            if all_runs:
+                latest = all_runs[0]
+                last_ingest = {
+                    "id": str(latest.id),
+                    "source_type": latest.source_type,
+                    "status": latest.status,
+                    "finished_at": _iso(latest.finished_at or latest.started_at),
+                    "source_available": latest.source_available,
+                }
 
-        empty = len(matched) == 0
-        return {
+        payload = {
             "cluster_run_id": str(run.id) if run else None,
             "themes_refreshed_at": _iso(run.started_at) if run else None,
             "corpus": run.corpus if run else None,
             "denominator_definition": DENOMINATOR_DEFINITION,
-            "eligible_corpus_count": len(matched),
-            "normalized_count": self.repo.count_normalized(),
-            "raw_count": self.repo.count_raw(),
+            "eligible_corpus_count": eligible_count,
+            "normalized_count": (
+                normalized_count if normalized_count is not None else self.repo.count_normalized()
+            ),
+            "raw_count": raw_count if raw_count is not None else self.repo.count_raw(),
             "counts_by_source": counts_by_source,
             "unavailable_sources": unavailable,
             "included_sources": included,
-            "date_histogram": [
-                {"bucket": key, "count": histogram[key]} for key in sorted(histogram)
-            ],
-            "intent_tag_counts": dict(intent_tags),
-            "intent_mode_counts": dict(intent_modes),
+            "date_histogram": histogram,
+            "intent_tag_counts": intent_tags,
+            "intent_mode_counts": intent_modes,
             "last_ingest": last_ingest,
             "filters": filters.as_dict(),
             "empty": empty,
         }
+        if cacheable:
+            return _metrics_cache_set(cache_key, payload)
+        return payload
 
-    def themes(self, filters: GlobalFilters) -> dict[str, Any]:
+    def themes(self, filters: GlobalFilters, *, include_sparklines: bool = True) -> dict[str, Any]:
+        from src.db.postgres import PostgresRepository
+
+        cache_key = None
+        if (
+            include_sparklines
+            and not _filters_need_scan(filters)
+            and isinstance(self.repo, PostgresRepository)
+        ):
+            cache_key = f"themes:unfiltered:{id(self.repo)}"
+            cached = _metrics_cache_get(cache_key)
+            if cached is not None:
+                return cached
         run = self._cluster_run()
         unavailable = self._unavailable()
-        slice_kind, payload = resolve_metrics_slice(filters)
+        slice_kind, slice_payload = resolve_metrics_slice(filters)
         if run is None:
             return {
                 "cluster_run_id": None,
                 "themes_refreshed_at": None,
                 "denominator_definition": DENOMINATOR_DEFINITION,
                 "unavailable_sources": unavailable,
-                "metrics_slice": payload,
+                "metrics_slice": slice_payload,
                 "filters": filters.as_dict(),
                 "themes": [],
                 "empty": True,
@@ -352,42 +460,47 @@ class QueryService:
             matched_ids = None
             empty_corpus = False
         theme_rows = {t.id: t for t in self.repo.list_themes(run.id) if t.published}
-        assignments = self.repo.list_document_themes(cluster_run_id=run.id)
+        # Unfiltered dashboard: skip loading every document_themes row (Neon timeout).
         members: dict[UUID, set[UUID]] = defaultdict(set)
-        for row in assignments:
-            members[row.theme_id].add(row.document_id)
+        if matched_ids is not None:
+            for row in self.repo.list_document_themes(cluster_run_id=run.id):
+                members[row.theme_id].add(row.document_id)
         snapshots = [
             row
             for row in self.repo.list_theme_metrics(
                 cluster_run_id=run.id, slice_kind=slice_kind, published_only=True
             )
-            if self._snapshot_matches_slice(row, slice_kind, payload)
+            if self._snapshot_matches_slice(row, slice_kind, slice_payload)
         ]
-        time_slices = self.repo.list_theme_metrics(
-            cluster_run_id=run.id, slice_kind="time_bucket", published_only=True
-        )
         spark_by_theme: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
-        for row in time_slices:
-            bucket = row.slice.get("bucket")
-            if not bucket:
-                continue
-            if filters.date_from or filters.date_to:
-                continue
-            spark_by_theme[row.theme_id].append(
-                {
-                    "bucket": bucket,
-                    "mention_count": row.mention_count,
-                    "share_of_voice": row.share_of_voice,
-                }
+        if include_sparklines and not (filters.date_from or filters.date_to):
+            time_slices = self.repo.list_theme_metrics(
+                cluster_run_id=run.id, slice_kind="time_bucket", published_only=True
             )
+            for row in time_slices:
+                bucket = row.slice.get("bucket")
+                if not bucket:
+                    continue
+                spark_by_theme[row.theme_id].append(
+                    {
+                        "bucket": bucket,
+                        "mention_count": row.mention_count,
+                        "share_of_voice": row.share_of_voice,
+                    }
+                )
         cards: list[dict[str, Any]] = []
         if not empty_corpus:
             for snap in snapshots:
                 theme = theme_rows.get(snap.theme_id)
                 if theme is None:
                     continue
-                assigned = members.get(theme.id, set())
-                filtered_n = len(assigned) if matched_ids is None else len(assigned & matched_ids)
+                if matched_ids is None:
+                    evidence_count = int(snap.mention_count or 0)
+                    filtered_n = evidence_count
+                else:
+                    assigned = members.get(theme.id, set())
+                    evidence_count = len(assigned)
+                    filtered_n = len(assigned & matched_ids)
                 if filtered_n <= 0:
                     continue
                 spark = sorted(spark_by_theme.get(theme.id, []), key=lambda p: p["bucket"])
@@ -397,7 +510,7 @@ class QueryService:
                         snap,
                         rank=0,
                         spark=spark,
-                        evidence_count=len(assigned),
+                        evidence_count=evidence_count,
                         filtered_evidence_count=filtered_n,
                         refreshed=_iso(run.started_at),
                     )
@@ -405,16 +518,19 @@ class QueryService:
         cards.sort(key=lambda c: (c.get("impact_score") or 0.0), reverse=True)
         for index, card in enumerate(cards, start=1):
             card["rank"] = index
-        return {
+        result = {
             "cluster_run_id": str(run.id),
             "themes_refreshed_at": _iso(run.started_at),
             "denominator_definition": DENOMINATOR_DEFINITION,
             "unavailable_sources": unavailable,
-            "metrics_slice": payload,
+            "metrics_slice": slice_payload,
             "filters": filters.as_dict(),
             "themes": cards,
             "empty": empty_corpus or not cards,
         }
+        if cache_key:
+            return _metrics_cache_set(cache_key, result)
+        return result
 
     def _theme_card(
         self,
@@ -460,16 +576,24 @@ class QueryService:
         }
 
     def segments(self, filters: GlobalFilters, *, dimension: str = "product_category") -> dict[str, Any]:
+        from src.db.postgres import PostgresRepository
+
         if dimension not in SEGMENT_DIMENSIONS:
             dimension = "product_category"
+        cacheable = not _filters_need_scan(filters) and isinstance(self.repo, PostgresRepository)
+        cache_key = f"segments:{dimension}:unfiltered:{id(self.repo)}"
+        if cacheable:
+            cached = _metrics_cache_get(cache_key)
+            if cached is not None:
+                return cached
+
         run = self._cluster_run()
         unavailable = self._unavailable()
         threshold = self.settings.small_n_threshold
-        matched = self.matching_docs(filters)
-        matched_ids = {rec.id for rec, _ in matched}
-        empty = len(matched_ids) == 0
+        unfiltered = not _filters_need_scan(filters)
         cells: list[dict[str, Any]] = []
-        if run is None or empty:
+
+        if run is None:
             return {
                 "dimension": dimension,
                 "unknown_visible": True,
@@ -479,21 +603,38 @@ class QueryService:
                 "cells": [],
                 "empty": True,
             }
+
         themes = {t.id: t for t in self.repo.list_themes(run.id) if t.published}
+
         if dimension in {"product_category", "source_type"}:
             slices = self.repo.list_theme_metrics(
                 cluster_run_id=run.id, slice_kind=dimension, published_only=True
             )
-            assignments = self.repo.list_document_themes(cluster_run_id=run.id)
-            members: dict[UUID, set[UUID]] = defaultdict(set)
-            for row in assignments:
-                members[row.theme_id].add(row.document_id)
+            members: dict[UUID, set[UUID]] | None = None
+            matched_ids: set[UUID] | None = None
+            if not unfiltered:
+                matched = self.matching_docs(filters)
+                matched_ids = {rec.id for rec, _ in matched}
+                if not matched_ids:
+                    return {
+                        "dimension": dimension,
+                        "unknown_visible": True,
+                        "small_n_threshold": threshold,
+                        "filters": filters.as_dict(),
+                        "unavailable_sources": unavailable,
+                        "cells": [],
+                        "empty": True,
+                    }
+                members = defaultdict(set)
+                for row in self.repo.list_document_themes(cluster_run_id=run.id):
+                    members[row.theme_id].add(row.document_id)
             for snap in slices:
                 theme = themes.get(snap.theme_id)
                 if theme is None:
                     continue
-                if not (members.get(theme.id, set()) & matched_ids):
-                    continue
+                if members is not None and matched_ids is not None:
+                    if not (members.get(theme.id, set()) & matched_ids):
+                        continue
                 segment = str(snap.slice.get(dimension) or "unknown")
                 if filters.product_category and dimension == "product_category":
                     if segment != filters.product_category:
@@ -524,35 +665,23 @@ class QueryService:
                     }
                 )
         else:
-            eligible_by_seg: Counter[str] = Counter()
-            mention: dict[tuple[UUID, str], set[UUID]] = defaultdict(set)
-            rec_by_id = {rec.id: rec for rec, _ in matched}
-            for rec, _raw in matched:
-                if dimension == "price_tier":
-                    eligible_by_seg[_effective_price_tier(rec)] += 1
-                else:
-                    eligible_by_seg[getattr(rec, dimension) or "unknown"] += 1
-            for row in self.repo.list_document_themes(cluster_run_id=run.id):
-                rec = rec_by_id.get(row.document_id)
-                if rec is None:
-                    continue
-                if dimension == "price_tier":
-                    segment = _effective_price_tier(rec)
-                else:
-                    segment = getattr(rec, dimension) or "unknown"
-                mention[(row.theme_id, segment)].add(row.document_id)
-            segments = sorted(set(eligible_by_seg) | {"unknown"})
-            for theme_id, theme in themes.items():
-                for segment in segments:
-                    n = len(mention.get((theme_id, segment), set()))
-                    denom = int(eligible_by_seg.get(segment, 0))
+            # gender_segment / price_tier / platform_used — prefer SQL on Postgres.
+            fast = getattr(self.repo, "segment_cross_tab", None) if unfiltered else None
+            if fast is not None:
+                rows = fast(cluster_run_id=run.id, dimension=dimension)
+                for row in rows:
+                    theme = themes.get(row["theme_id"])
+                    if theme is None:
+                        continue
+                    n = int(row["mention_count"])
+                    denom = int(row["eligible_corpus_count"])
                     small = n < threshold
                     cells.append(
                         {
-                            "theme_id": str(theme_id),
+                            "theme_id": str(theme.id),
                             "theme_name": theme.name,
                             "dimension": dimension,
-                            "segment": segment,
+                            "segment": row["segment"],
                             "mention_count": n,
                             "eligible_corpus_count": denom,
                             "share_of_voice": share_of_voice(n, denom),
@@ -568,27 +697,108 @@ class QueryService:
                             "from_snapshot": False,
                         }
                     )
-        return {
+            else:
+                matched = self.matching_docs(filters)
+                matched_ids = {rec.id for rec, _ in matched}
+                if not matched_ids:
+                    return {
+                        "dimension": dimension,
+                        "unknown_visible": True,
+                        "small_n_threshold": threshold,
+                        "filters": filters.as_dict(),
+                        "unavailable_sources": unavailable,
+                        "cells": [],
+                        "empty": True,
+                    }
+                eligible_by_seg: Counter[str] = Counter()
+                mention: dict[tuple[UUID, str], set[UUID]] = defaultdict(set)
+                rec_by_id = {rec.id: rec for rec, _ in matched}
+                for rec, _raw in matched:
+                    if dimension == "price_tier":
+                        eligible_by_seg[_effective_price_tier(rec)] += 1
+                    else:
+                        eligible_by_seg[getattr(rec, dimension) or "unknown"] += 1
+                for row in self.repo.list_document_themes(cluster_run_id=run.id):
+                    rec = rec_by_id.get(row.document_id)
+                    if rec is None:
+                        continue
+                    if dimension == "price_tier":
+                        segment = _effective_price_tier(rec)
+                    else:
+                        segment = getattr(rec, dimension) or "unknown"
+                    mention[(row.theme_id, segment)].add(row.document_id)
+                segments = sorted(set(eligible_by_seg) | {"unknown"})
+                for theme_id, theme in themes.items():
+                    for segment in segments:
+                        n = len(mention.get((theme_id, segment), set()))
+                        denom = int(eligible_by_seg.get(segment, 0))
+                        small = n < threshold
+                        cells.append(
+                            {
+                                "theme_id": str(theme_id),
+                                "theme_name": theme.name,
+                                "dimension": dimension,
+                                "segment": segment,
+                                "mention_count": n,
+                                "eligible_corpus_count": denom,
+                                "share_of_voice": share_of_voice(n, denom),
+                                "data_confidence": None,
+                                "impact_score": None,
+                                "unavailable_sources": unavailable,
+                                "small_n": small,
+                                "caveat": (
+                                    "small_n; do not treat this cell as a majority of users"
+                                    if small
+                                    else None
+                                ),
+                                "from_snapshot": False,
+                            }
+                        )
+
+        payload = {
             "dimension": dimension,
             "unknown_visible": True,
             "small_n_threshold": threshold,
             "filters": filters.as_dict(),
             "unavailable_sources": unavailable,
             "cells": cells,
-            "empty": empty or not cells,
+            "empty": not cells,
         }
+        if cacheable:
+            return _metrics_cache_set(cache_key, payload)
+        return payload
 
     def trends(self, filters: GlobalFilters) -> dict[str, Any]:
+        from src.db.postgres import PostgresRepository
+
+        cacheable = not _filters_need_scan(filters) and isinstance(self.repo, PostgresRepository)
+        cache_key = f"trends:unfiltered:{id(self.repo)}"
+        if cacheable:
+            cached = _metrics_cache_get(cache_key)
+            if cached is not None:
+                return cached
+
         run = self._cluster_run()
         unavailable = self._unavailable()
-        matched_ids = self.matching_ids(filters)
-        if run is None or not matched_ids:
+        unfiltered = not _filters_need_scan(filters)
+        matched_ids: set[UUID] | None = None
+        if not unfiltered:
+            matched_ids = self.matching_ids(filters)
+            if run is None or not matched_ids:
+                return {
+                    "filters": filters.as_dict(),
+                    "unavailable_sources": unavailable,
+                    "series": [],
+                    "empty": True,
+                }
+        elif run is None:
             return {
                 "filters": filters.as_dict(),
                 "unavailable_sources": unavailable,
                 "series": [],
                 "empty": True,
             }
+
         themes = {t.id: t for t in self.repo.list_themes(run.id) if t.published}
         points = self.repo.list_theme_metrics(
             cluster_run_id=run.id, slice_kind="time_bucket", published_only=True
@@ -597,16 +807,18 @@ class QueryService:
         for row in points:
             by_theme[row.theme_id].append(row)
         series: list[dict[str, Any]] = []
-        assignments = self.repo.list_document_themes(cluster_run_id=run.id)
-        members: dict[UUID, set[UUID]] = defaultdict(set)
-        for row in assignments:
-            members[row.theme_id].add(row.document_id)
+        members: dict[UUID, set[UUID]] | None = None
+        if matched_ids is not None:
+            members = defaultdict(set)
+            for row in self.repo.list_document_themes(cluster_run_id=run.id):
+                members[row.theme_id].add(row.document_id)
         for theme_id, rows in by_theme.items():
             theme = themes.get(theme_id)
             if theme is None:
                 continue
-            if not (members.get(theme_id, set()) & matched_ids):
-                continue
+            if members is not None and matched_ids is not None:
+                if not (members.get(theme_id, set()) & matched_ids):
+                    continue
             ordered = sorted(rows, key=lambda r: str(r.slice.get("bucket") or ""))
             insufficient = len(ordered) < 2
             for row in ordered:
@@ -623,12 +835,15 @@ class QueryService:
                         "insufficient_history": insufficient,
                     }
                 )
-        return {
+        payload = {
             "filters": filters.as_dict(),
             "unavailable_sources": unavailable,
             "series": series,
             "empty": not series,
         }
+        if cacheable:
+            return _metrics_cache_set(cache_key, payload)
+        return payload
 
     def ngrams(self, filters: GlobalFilters, *, n: int | None = None, limit: int = 50) -> dict[str, Any]:
         run = self._cluster_run()
@@ -667,11 +882,54 @@ class QueryService:
 
     def evidence(self, filters: GlobalFilters, *, limit: int = 200) -> dict[str, Any]:
         run = self._cluster_run()
-        matched = self.matching_docs(filters)
+        fast = getattr(self.repo, "list_evidence_rows", None)
+        if fast is not None and self._evidence_can_use_sql(filters):
+            rows_out = fast(
+                cluster_run_id=run.id if run else None,
+                theme_id=filters.theme_id,
+                source_type=filters.source_type,
+                product_category=filters.product_category,
+                gender_segment=filters.gender_segment,
+                price_tier=filters.price_tier,
+                platform_used=filters.platform_used,
+                intent_mode=filters.intent_mode,
+                q=filters.q,
+                limit=limit,
+            )
+            return {
+                "filters": filters.as_dict(),
+                "rows": rows_out,
+                "empty": not rows_out,
+            }
+
+        # Memory / filtered fallback. Unfiltered: never pull the whole corpus.
+        if not _filters_need_scan(filters):
+            fetch_n = max(limit * 4, min(800, limit * 8))
+            try:
+                docs = self.repo.list_normalized(
+                    limit=fetch_n, eligible_only=True, copy=False
+                )  # type: ignore[call-arg]
+            except TypeError:
+                docs = self.repo.list_normalized(limit=fetch_n, eligible_only=True)
+            raw_by_id = self._raw_by_id(docs)
+            matched = []
+            for rec in docs:
+                if not rec.eligible or rec.duplicate_of is not None:
+                    continue
+                raw = raw_by_id.get(rec.raw_id) or self.repo.get_raw(rec.raw_id)
+                matched.append((rec, raw))
+        else:
+            matched = self.matching_docs(filters)
         matched_ids = {rec.id for rec, _ in matched}
         if not matched_ids:
             return {"filters": filters.as_dict(), "rows": [], "empty": True}
-        extractions = self._extraction_map()
+        extractions = self._extraction_map() if _filters_need_scan(filters) else {}
+        if not extractions:
+            # Only hydrate extractions for the capped candidate set.
+            for rec, _ in matched:
+                row = self.repo.get_extraction(rec.id)
+                if row is not None:
+                    extractions[rec.id] = row
         theme_names: dict[UUID, str] = {}
         assignments: list[Any] = []
         if run is not None:
@@ -680,6 +938,10 @@ class QueryService:
                 cluster_run_id=run.id, theme_id=filters.theme_id
             )
         assigned_docs = {row.document_id: row for row in assignments}
+        chunk_ids: dict[UUID, UUID] = {}
+        batch_chunks = getattr(self.repo, "first_chunk_ids", None)
+        if batch_chunks is not None:
+            chunk_ids = batch_chunks(matched_ids)
         rows_out: list[dict[str, Any]] = []
         seen: set[tuple[UUID, UUID | None, str]] = set()
         for rec, raw in matched:
@@ -691,11 +953,14 @@ class QueryService:
             theme_id = assignment.theme_id if assignment else None
             if filters.theme_id and theme_id != filters.theme_id:
                 continue
-            try:
-                chunks = self.repo.list_chunks(rec.id, copy=False)  # type: ignore[call-arg]
-            except TypeError:
-                chunks = self.repo.list_chunks(rec.id)
-            chunk_id = str(chunks[0].id) if chunks else None
+            chunk_uuid = chunk_ids.get(rec.id)
+            if chunk_uuid is None and batch_chunks is None:
+                try:
+                    chunks = self.repo.list_chunks(rec.id, copy=False)  # type: ignore[call-arg]
+                except TypeError:
+                    chunks = self.repo.list_chunks(rec.id)
+                chunk_uuid = chunks[0].id if chunks else None
+            chunk_id = str(chunk_uuid) if chunk_uuid else None
             url = raw.url if raw else None
             link_unavailable = not bool(url and str(url).strip())
             source_type = _source_value(raw)
@@ -737,6 +1002,14 @@ class QueryService:
             "rows": rows_out,
             "empty": not rows_out,
         }
+
+    def _evidence_can_use_sql(self, filters: GlobalFilters) -> bool:
+        """SQL evidence path supports equality filters + q; date filters stay in Python."""
+        if filters.date_from or filters.date_to:
+            return False
+        if filters.friction_tag or filters.intent_tag:
+            return False
+        return True
 
     def evidence_csv(self, filters: GlobalFilters) -> str:
         payload = self.evidence(filters, limit=5000)

@@ -122,23 +122,35 @@ def retrieve_quotes(
         needles = list(dict.fromkeys(must + needles))
     elif any(token in qblob for token in ("fit", "size", "sizing")):
         must = ["fit", "size", "sizing", "too small", "too big"]
+    needles = needles[:6]
     probe = (
         re.compile("|".join(re.escape(item) for item in needles), re.I)
         if needles
         else None
     )
-    store = getattr(repo, "normalized", None)
-    raw_store = getattr(repo, "raw", None)
-    if store is None:
-        docs = repo.list_normalized(limit=None, eligible_only=eligible_only)
-        pairs = [(doc, repo.get_raw(doc.raw_id)) for doc in docs]
+    search = getattr(repo, "list_normalized_matching", None)
+    get_raw_batch = getattr(repo, "get_raw_batch", None)
+    if search is not None and get_raw_batch is not None and needles:
+        docs = search(needles, eligible_only=eligible_only, limit=max(limit * 12, 80))
+        raw_by_id = get_raw_batch({doc.raw_id for doc in docs})
+        pairs = [(doc, raw_by_id.get(doc.raw_id)) for doc in docs]
     else:
-        pairs = []
-        for doc in store.values():
-            if eligible_only and (not doc.eligible or doc.duplicate_of is not None):
-                continue
-            raw = raw_store.get(doc.raw_id) if raw_store is not None else None
-            pairs.append((doc, raw))
+        store = getattr(repo, "normalized", None)
+        raw_store = getattr(repo, "raw", None)
+        if store is None:
+            docs = repo.list_normalized(limit=None, eligible_only=eligible_only)
+            if get_raw_batch is not None:
+                raw_by_id = get_raw_batch({doc.raw_id for doc in docs})
+                pairs = [(doc, raw_by_id.get(doc.raw_id)) for doc in docs]
+            else:
+                pairs = [(doc, repo.get_raw(doc.raw_id)) for doc in docs]
+        else:
+            pairs = []
+            for doc in store.values():
+                if eligible_only and (not doc.eligible or doc.duplicate_of is not None):
+                    continue
+                raw = raw_store.get(doc.raw_id) if raw_store is not None else None
+                pairs.append((doc, raw))
     ranked: list[tuple[float, dict[str, Any]]] = []
     for doc, raw in pairs:
         text = doc.text_original or ""

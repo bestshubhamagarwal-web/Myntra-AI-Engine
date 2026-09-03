@@ -2,6 +2,7 @@
 
 **Project:** Myntra Discovery Engine  
 **GitHub:** [bestshubhamagarwal-web/Myntra-AI-Engine](https://github.com/bestshubhamagarwal-web/Myntra-AI-Engine)  
+**Live:** [Dashboard](https://myntra-ai-engine-web.vercel.app) · [Query API](https://myntra-ai-engine-server.vercel.app)  
 **Target:** FastAPI Query API **and** Next.js dashboard on **Vercel**; Postgres + **pgvector** on **Neon**  
 **Companion:** [Architecture.md](./Architecture.md), [Runbook.md](./Runbook.md), [ImplementationPlan.md](./ImplementationPlan.md)
 
@@ -127,8 +128,8 @@ One GitHub repo, two Vercel projects, one Neon database:
 | Piece | Type | Public? |
 | ----- | ---- | ------- |
 | Neon Postgres 16+ with pgvector | Vercel **Storage → Neon**, or neon.tech project | No (dashboard). Connection string for API + laptop |
-| `myntra-ai-engine-server` | GitHub → repo, **Root Directory = `.`**, framework **FastAPI** | Yes (`https://<api>.vercel.app`) |
-| `myntra-ai-engine` | GitHub → same repo, **Root Directory = `web`**, framework **Next.js** | Yes (`https://<web>.vercel.app`) |
+| `myntra-ai-engine-server` | GitHub → repo, **Root Directory = `.`**, framework **FastAPI** | Yes (`https://myntra-ai-engine-server.vercel.app`) |
+| `myntra-ai-engine-web` | GitHub → same repo, **Root Directory = `web`**, framework **Next.js** | Yes (`https://myntra-ai-engine-web.vercel.app`) |
 
 
 Region: put **Neon** and both Vercel projects in the same area. Closest to India is **Singapore** (`sin1` on Vercel; Neon `ap-southeast-1` when available).
@@ -211,7 +212,7 @@ Sizing: Neon free / launch is enough to start. 1024-d vectors plus raw/normalize
 | `API_SHARED_SECRET` | long random string (same value on the dashboard project) |
 | `AUTHOR_HMAC_SECRET` | long random string (stable) |
 | `GROQ_API_KEY` | Groq key |
-| `API_CORS_ORIGINS` | `https://<web>.vercel.app,http://localhost:3000` |
+| `API_CORS_ORIGINS` | `https://myntra-ai-engine-web.vercel.app,http://localhost:3000` |
 
 
 `REQUIRE_POSTGRES`, `HF_HOME`, and `/tmp` paths are set in code when `VERCEL=1`. You do not need `API_HOST` / `API_PORT`.
@@ -263,7 +264,7 @@ Existing wrappers: `ops/cron/discovery.crontab`, `ops/windows/Register-PipelineT
 
 ---
 
-## 9. Vercel — dashboard project (`myntra-ai-engine`)
+## 9. Vercel — dashboard project (`myntra-ai-engine-web`)
 
 1. [vercel.com](https://vercel.com) → **Add New → Project** → same GitHub repo.
 2. **Root Directory:** `web` (Edit, not the repo root).
@@ -272,12 +273,12 @@ Existing wrappers: `ops/cron/discovery.crontab`, `ops/windows/Register-PipelineT
 
   | Name                | Value                                                    | Exposed to browser?        |
   | ------------------- | -------------------------------------------------------- | -------------------------- |
-  | `API_BASE_URL`      | `https://<api>.vercel.app` (no trailing slash)           | **No** — server proxy only |
+  | `API_BASE_URL`      | `https://myntra-ai-engine-server.vercel.app` (no trailing slash) | **No** — server proxy only |
   | `API_SHARED_SECRET` | identical to the FastAPI project                         | **No**                     |
 
    The proxy injects `X-API-Key` from `API_SHARED_SECRET` when the browser does not send one (`web/app/api/query/[...path]/route.ts`). If you omit the secret on the dashboard but set it on the API, the unlock screen appears and the value is stored in `sessionStorage` only.
 5. Region: same as the API project (`sin1` if Neon is Singapore).
-6. Deploy. Open `https://<web>.vercel.app`. Routes to check: `/overview`, `/themes`, `/evidence`, `/copilot`.
+6. Deploy. Open `https://myntra-ai-engine-web.vercel.app`. Routes to check: `/overview`, `/themes`, `/evidence`, `/copilot`.
 
 Preview deployments: the API already allows `https://*.vercel.app` via origin regex. CORS only matters for **browser → FastAPI** (OpenAPI, curl from a webpage). The product UI does not do that.
 
@@ -301,7 +302,7 @@ Copy from `.env.example`. Secrets stay in the Vercel / Neon dashboards, never in
 | `EMBEDDING_DIM`      | `1024`                                                                                                   |
 | `AUTHOR_HMAC_SECRET` | Required for real ingest; keep stable                                                                    |
 | `API_SHARED_SECRET`  | Required (hosted API)                                                                                    |
-| `API_CORS_ORIGINS`   | `https://<web>.vercel.app,http://localhost:3000`                                                         |
+| `API_CORS_ORIGINS`   | `https://myntra-ai-engine-web.vercel.app,http://localhost:3000` |
 | `C_MAX` / `S_MAX`    | `200` / `4`                                                                                              |
 
 
@@ -313,7 +314,7 @@ Same names as `.env.example`: `PLAY_STORE_*`, `APP_STORE_*`, `REDDIT_*`, `YOUTUB
 
 The Vercel replica will **not** ingest; connectors only matter on the laptop.
 
-### 10.3 Vercel `myntra-ai-engine` — required
+### 10.3 Vercel `myntra-ai-engine-web` — required
 
 
 | Variable            | Production notes                         |
@@ -339,7 +340,7 @@ Do these in order. Do not attach the dashboard until `/health` reports `store=po
 - [ ] Migrations applied on boot (`schema_migrations`) or `python -m src.cli migrate` from the laptop
 - [ ] Bootstrap corpus (laptop pipeline against Neon) (§8)
 - [ ] Confirm `GET https://<api>.vercel.app/metrics/overview` with `X-API-Key` returns themes/counts
-- [ ] Vercel project `myntra-ai-engine`, root `web`, env `API_BASE_URL` + `API_SHARED_SECRET`
+- [ ] Vercel project `myntra-ai-engine-web`, root `web`, env `API_BASE_URL` + `API_SHARED_SECRET`
 - [ ] Set API `API_CORS_ORIGINS` to the dashboard URL
 - [ ] Browser: Overview SoV matches a curl to the API; Copilot citations open the evidence drawer
 - [ ] `python -m src.cli source status` — unavailable sources listed, not imputed
@@ -406,7 +407,7 @@ BGE is RAM + disk on the laptop, not a Vercel line item. Groq 429: raise `GROQ_M
 | API healthy, UI empty, `/health` `store=memory`                | `DATABASE_URL` wrong or Neon not up                                  | Neon `POSTGRES_URL` / `DATABASE_URL`; `sslmode=require`             |
 | `/health` stuck `store=pending`                                | Neon unreachable or pooled URL blocking migrate                      | Direct `POSTGRES_URL_NON_POOLING`; retry the function               |
 | `CREATE EXTENSION vector` fails                                | Extension not enabled on the database                                | Neon SQL Editor: `CREATE EXTENSION vector`; migrate again           |
-| `API_SHARED_SECRET is not set on the hosted Query API`         | Secret missing on the API project                                    | Set it; redeploy                                                    |
+| `API_SHARED_SECRET is not set on the hosted Query API`         | Secret missing or empty on the API project                           | Set the same non-empty `API_SHARED_SECRET` on **both** Vercel projects; Redeploy |
 | Dashboard 502 `Query API unreachable`                          | `API_BASE_URL` trailing path, `http` vs `https`, or wrong project    | Origin only, HTTPS, `https://<api>.vercel.app` (not Neon)           |
 | Dashboard 401 AuthGate                                         | Secret on API project only                                           | Set the same secret on the dashboard project, or type it in the gate |
 | Copilot 504                                                    | Cold start + Groq > proxy budget                                     | Retry; Fluid keeps the isolate warm                                 |
@@ -420,7 +421,7 @@ BGE is RAM + disk on the laptop, not a Vercel line item. Groq 429: raise `GROQ_M
 | `No Next.js version detected` on the dashboard project         | Root Directory is `.` (reads the API `package.json`) or repo-root `.vercelignore` hid `web/` | Root Directory **`web`**; Framework **Next.js**; Redeploy after this repo change |
 | `externally-managed-environment` on the dashboard project      | Frontend is running the API `pip install` on Vercel’s Node image (PEP 668) | Root Directory **`web`**; Install Command Override **Off**; Redeploy |
 | API project `Command "npm run build" exited with 1`            | Framework/Build Command still Next.js from `web/package.json`        | Framework **FastAPI**; Build Command Override **Off**; Redeploy     |
-| `This Serverless Function has crashed` on `/health`            | Import-time pickle fallback wrote `data/` (read-only) or `DATABASE_URL` is the docs host `*.neon.tech` | Set a real Neon URL (`ep-….neon.tech`); Redeploy |
+| `This Serverless Function has crashed` on `/health`            | Import-time pickle fallback wrote `data/` (read-only) or `DATABASE_URL` is the docs host `*.neon.tech` / `ep-….neon.tech` | Paste a real Neon URL (`ep-cool-name-a1b2c3.ap-southeast-1.aws.neon.tech`); Redeploy |
 
 
 Operator playbook for Groq, clustering, and source pause remains [Runbook.md](./Runbook.md).

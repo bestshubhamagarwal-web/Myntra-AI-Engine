@@ -28,7 +28,7 @@ POSTGRES_UNREACHABLE = (
 
 POSTGRES_REQUIRED = (
     "Postgres is required (REQUIRE_POSTGRES=true) but was not reachable. "
-    "Check DATABASE_URL (Neon *.neon.tech with sslmode=require, or POSTGRES_URL "
+    "Check DATABASE_URL (Neon host ending in .neon.tech with sslmode=require, or POSTGRES_URL "
     "from the Vercel Neon integration). Refusing local_store.pkl so "
     "the API cannot serve an empty corpus."
 )
@@ -59,9 +59,9 @@ HOSTED_INVALID_URL = (
 )
 
 HOSTED_PLACEHOLDER_URL = (
-    "DATABASE_URL is still the docs placeholder (host *.neon.tech). "
-    "Paste the real Neon connection string from the Neon dashboard "
-    "(ep-….neon.tech, sslmode=require), then redeploy."
+    "DATABASE_URL is still the docs placeholder (host *.neon.tech or ep-….neon.tech). "
+    "Paste the real Neon connection string from the Neon dashboard — a hostname like "
+    "ep-cool-name-a1b2c3.ap-southeast-1.aws.neon.tech with sslmode=require — then redeploy."
 )
 
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
@@ -684,21 +684,38 @@ def is_render_internal_host(host: str) -> bool:
 
 
 def is_placeholder_postgres_host(host: str) -> bool:
-    """Docs samples like *.neon.tech are not real DNS names."""
+    """Docs samples like *.neon.tech or ep-….neon.tech are not real DNS names."""
     h = (host or "").strip().lower()
     if not h:
         return False
-    if "*" in h or h.startswith("<") or h.endswith(">"):
+    if "*" in h or "\u2026" in h or h.startswith("<") or h.endswith(">") or "<" in h:
         return True
-    if h in {"neon.tech", "example.com"}:
+    if "..." in h:
+        return True
+    if h in {"neon.tech", "example.com", "host.neon.tech"}:
+        return True
+    first = h.split(".")[0]
+    if first.startswith("ep-") and not re.search(r"ep-[a-z0-9]", first):
         return True
     return False
+
+
+def is_placeholder_postgres_url(url: str) -> bool:
+    """True when the DSN is a docs paste (ellipsis, *.neon.tech), not a live endpoint."""
+    text = (url or "").strip()
+    if not text:
+        return False
+    if "\u2026" in text:
+        return True
+    return is_placeholder_postgres_host(_hostname(text))
 
 
 def is_remote_postgres_url(url: str) -> bool:
     """True when conninfo has a non-loopback host (not ${{…}} placeholders)."""
     cleaned = normalize_database_url(url)
     if not cleaned or "${{" in cleaned or "{{" in cleaned:
+        return False
+    if is_placeholder_postgres_url(cleaned):
         return False
     host = _hostname(cleaned)
     if not host or is_placeholder_postgres_host(host) or is_loopback_host(host):
@@ -904,7 +921,7 @@ def iter_database_urls(explicit: str) -> list[str]:
         host = _hostname(url)
         if not host:
             return
-        if is_placeholder_postgres_host(host):
+        if is_placeholder_postgres_host(host) or is_placeholder_postgres_url(url):
             return
         if on_hosted_platform() and is_loopback_host(host):
             return
@@ -1202,15 +1219,31 @@ def try_postgres(
 def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> PostgresRepository:
     """Retry until Postgres accepts connections or the wait budget is spent."""
     pinned = apply_hosted_database_env()
+    original = pinned or cfg.database_url or env_lookup("DATABASE_URL")
+    original_placeholder = is_placeholder_postgres_url(original) or is_placeholder_postgres_host(
+        _hostname(original)
+    )
     cfg.database_url = resolve_database_url(pinned or cfg.database_url)
     host = _hostname(cfg.database_url)
     urls = iter_database_urls(cfg.database_url)
-    if cfg.require_postgres and is_placeholder_postgres_host(host):
+    remote = [item for item in urls if is_remote_postgres_url(item)]
+    placeholder = original_placeholder or is_placeholder_postgres_url(cfg.database_url) or is_placeholder_postgres_host(host)
+    if remote and (placeholder or not is_remote_postgres_url(cfg.database_url)):
+        cfg.database_url = remote[0]
+        host = _hostname(cfg.database_url)
+        placeholder = False
+    if cfg.require_postgres and placeholder and not remote:
         raise PostgresRequiredError(HOSTED_PLACEHOLDER_URL)
     if cfg.require_postgres and on_hosted_platform():
-        remote = [item for item in urls if is_remote_postgres_url(item)]
         if not remote:
-            if is_placeholder_postgres_host(host) or "*" in (cfg.database_url or ""):
+            if (
+                placeholder
+                or original_placeholder
+                or "*" in (original or "")
+                or "\u2026" in (original or "")
+                or "*" in (cfg.database_url or "")
+                or "\u2026" in (cfg.database_url or "")
+            ):
                 raise PostgresRequiredError(HOSTED_PLACEHOLDER_URL)
             if _loopback_database_url_ignored or is_loopback_host(host):
                 raise PostgresRequiredError(HOSTED_LOCAL_URL)
@@ -1247,7 +1280,20 @@ def wait_for_postgres(cfg: Settings, *, total_seconds: float | None = None) -> P
     )
     ssl_note = any("ssl" in (note or "").lower() and "closed" in (note or "").lower() for note in last_errors)
     if dns_note:
-        extra = " " + HOSTED_RENDER_DNS
+        render_fail = is_render_postgres_host(host) or any(
+            is_render_postgres_host(_hostname(item)) for item in urls
+        )
+        neon_fail = is_neon_postgres_host(host) or any(
+            is_neon_postgres_host(_hostname(item)) for item in urls
+        )
+        if render_fail and not neon_fail:
+            extra = " " + HOSTED_RENDER_DNS
+        elif neon_fail:
+            extra = (
+                " Neon hostname did not resolve. If it contains '…' or '*', it is still "
+                "the docs example. Paste the real endpoint from the Neon dashboard "
+                "(ep-cool-name-a1b2c3.ap-southeast-1.aws.neon.tech), then redeploy."
+            )
     elif ssl_note:
         extra = " " + HOSTED_RENDER_TLS
     elif used_internal or is_render_internal_host(host):
@@ -1292,7 +1338,8 @@ def connect_store(cfg: Settings) -> DocumentRepository:
         "Cannot create local_store.pkl "
         f"({cfg.local_store_path}). On Vercel the filesystem is "
         "read-only except /tmp. Set DATABASE_URL to a real Neon host "
-        "(ep-….neon.tech), not the docs placeholder *.neon.tech."
+        "(ep-cool-name-a1b2c3.ap-southeast-1.aws.neon.tech), not the docs "
+        "placeholder *.neon.tech or ep-….neon.tech."
     )
     if path_parent_unwritable(cfg.local_store_path.parent):
         raise PostgresRequiredError(pickle_error)

@@ -125,10 +125,13 @@ def test_load_settings_on_vercel_does_not_keep_localhost(monkeypatch):
 
 
 def test_placeholder_neon_host_is_not_a_real_database_url():
-    from src.db.connect import is_placeholder_postgres_host, is_remote_postgres_url
+    from src.db.connect import is_placeholder_postgres_host, is_placeholder_postgres_url, is_remote_postgres_url
 
     assert is_placeholder_postgres_host("*.neon.tech")
+    assert is_placeholder_postgres_host("ep-\u2026.neon.tech")
+    assert is_placeholder_postgres_url("postgresql://\u2026@ep-\u2026.neon.tech/neondb?sslmode=require")
     assert not is_remote_postgres_url("postgresql://u:p@*.neon.tech/neondb")
+    assert not is_remote_postgres_url("postgresql://\u2026@ep-\u2026.neon.tech/neondb?sslmode=require")
     assert is_remote_postgres_url("postgresql://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb")
 
 
@@ -380,6 +383,67 @@ def test_wait_for_postgres_rejects_placeholder_neon_without_handshake(monkeypatc
     )
     with pytest.raises(PostgresRequiredError, match="placeholder|not a real Postgres"):
         wait_for_postgres(settings)
+
+
+def test_wait_for_postgres_rejects_ellipsis_neon_without_handshake(monkeypatch, tmp_path):
+    from src.db import connect as connect_mod
+
+    monkeypatch.setenv("VERCEL", "1")
+    for key in (
+        "RENDER_DATABASE_URL",
+        "DISCOVERY_DATABASE_URL",
+        "DATABASE_PRIVATE_URL",
+        "DATABASE_PUBLIC_URL",
+        "POSTGRES_URL",
+        "POSTGRES_PRISMA_URL",
+        "POSTGRES_URL_NON_POOLING",
+        "PGHOST",
+        "PG_HOST",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    url = "postgresql://\u2026@ep-\u2026.neon.tech/neondb?sslmode=require"
+    monkeypatch.setenv("DATABASE_URL", url)
+    monkeypatch.setattr(
+        connect_mod,
+        "handshake_database_url",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not handshake placeholder host")),
+    )
+    settings = Settings(
+        database_url=url,
+        require_postgres=True,
+        postgres_wait_seconds=30,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    with pytest.raises(PostgresRequiredError, match="placeholder"):
+        wait_for_postgres(settings)
+
+
+def test_wait_for_postgres_uses_postgres_url_when_database_url_is_placeholder(monkeypatch, tmp_path):
+    from src.db import connect as connect_mod
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://\u2026@ep-\u2026.neon.tech/neondb?sslmode=require")
+    monkeypatch.setenv(
+        "POSTGRES_URL",
+        "postgresql://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb",
+    )
+    monkeypatch.setattr(
+        connect_mod,
+        "handshake_database_url",
+        lambda url, connect_timeout=8: url,
+    )
+    settings = Settings(
+        database_url="postgresql://\u2026@ep-\u2026.neon.tech/neondb?sslmode=require",
+        require_postgres=True,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+    )
+    repo = wait_for_postgres(settings)
+    assert "ep-abc.ap-southeast-1.aws.neon.tech" in repo.database_url
 
 
 def test_render_blueprint_injects_postgres_url():
@@ -940,6 +1004,7 @@ def test_pending_store_detail_explains_pgvector_and_localhost():
         "or handshake failed (host=unknown)."
     )
     assert "Migrations need pgvector" not in reachability
+    assert "docs placeholder" not in reachability.lower()
     assert "railway.internal" in reachability.lower() or "not a real postgres" in reachability.lower()
     local = pending_store_detail("could not connect to server at localhost")
     assert "localhost" in local.lower()
@@ -1024,3 +1089,50 @@ def test_pending_metrics_surface_boot_error(tmp_path, monkeypatch):
     overview = client.get("/metrics/overview", headers={"X-API-Key": "deploy-secret"})
     assert overview.status_code == 503
     assert "pgvector" in overview.json()["detail"].lower()
+
+
+def test_hosted_metrics_without_secret_do_not_block_dashboard(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("POSTGRES_WAIT_SECONDS", "0")
+    monkeypatch.delenv("API_SHARED_SECRET", raising=False)
+    settings = Settings(
+        database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
+        require_postgres=True,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+        api_shared_secret="",
+    )
+    overview = TestClient(create_app(settings=settings)).get("/metrics/overview")
+    assert overview.status_code == 503
+    assert "API_SHARED_SECRET" not in overview.json()["detail"]
+    assert "Postgres" in overview.json()["detail"] or "DATABASE_URL" in overview.json()["detail"]
+
+
+def test_hosted_metrics_accept_env_secret(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from src.api.app import create_app
+
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("POSTGRES_WAIT_SECONDS", "0")
+    monkeypatch.setenv("API_SHARED_SECRET", "live-secret")
+    settings = Settings(
+        database_url="postgresql://discovery:discovery@127.0.0.1:1/discovery",
+        require_postgres=True,
+        postgres_wait_seconds=0,
+        local_store_path=tmp_path / "local_store.pkl",
+        author_hmac_secret="deploy-hmac",
+        raw_store_path=tmp_path,
+        api_shared_secret="",
+    )
+    client = TestClient(create_app(settings=settings))
+    denied = client.get("/metrics/overview")
+    assert denied.status_code == 401
+    ok = client.get("/metrics/overview", headers={"X-API-Key": "live-secret"})
+    assert ok.status_code in {200, 503}

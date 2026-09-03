@@ -4,6 +4,17 @@
 **Companion docs:** [Architecture.md](./Architecture.md), [problemStatement.md](./problemStatement.md)  
 **Scope:** Research prototype — working pipeline, populated DB, Copilot, dashboard, ranked opportunity areas. Not production scraper scale, not product solution design.
 
+### Model stack (locked)
+
+This plan **supersedes** any Claude / GPT / OpenAI embedding language in the problem statement.
+
+| Role | Locked choice | Not used |
+| --- | --- | --- |
+| **LLM** (extraction, Copilot, theme labels, weekly report) | **Groq Cloud** (`GROQ_API_KEY`, `https://api.groq.com/openai/v1`) | OpenAI Chat Completions host, Claude, other LLM APIs |
+| **Embeddings** | Local **BGE** (`BAAI/bge-m3`, dim **1024**) | OpenAI `text-embedding-*` / ada, Groq-as-embedder |
+
+The Groq URL path contains `openai/v1` because Groq is **OpenAI-compatible**. That is a client protocol only — do not set `OPENAI_API_KEY` or call `api.openai.com`.
+
 ---
 
 ## How to use this plan
@@ -143,7 +154,7 @@ Matches problem-statement deliverables (Architecture §20):
 - `extractions` table matching Architecture §8.2 JSON schema
 - Versioned prompt: `prompts/extract.json`
 - **Groq** structured output (`GROQ_MODEL`); JSON schema or `json_object` mode; Pydantic validate; nulls allowed; no guessing
-- OpenAI Python SDK only as a **Groq client** (`base_url` = Groq); no OpenAI embeddings
+- If using the OpenAI Python SDK, point it **only** at Groq (`base_url=https://api.groq.com/openai/v1` + `GROQ_API_KEY`). Embeddings are **BGE-M3 local**, never OpenAI `embeddings.create`
 - Cache / skip re-extract when content hash unchanged
 - Resume batch from last `document_id`; `extraction_status` (`ok` \| `failed` \| `pending`)
 - Failed JSON stays in evidence, **excluded** from later theme metrics

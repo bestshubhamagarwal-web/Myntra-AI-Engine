@@ -30,3 +30,5 @@ web/.next/
 
 # Interview notes — do not push
 script.md
+.vercel
+.env*

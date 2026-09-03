@@ -4,7 +4,7 @@
   "version": "0.6.0",
   "description": "Phase 6 Next.js product UI. Numbers come from the Phase 5 Query API only.",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",

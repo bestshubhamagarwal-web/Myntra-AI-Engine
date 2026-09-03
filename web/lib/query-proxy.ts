@@ -58,9 +58,13 @@ export async function proxyQuery(req: NextRequest, pathParts: string[]): Promise
 
   let lastError =
     "Query API unreachable. On the dashboard Vercel project set API_BASE_URL to the FastAPI origin (https://<api-project>.vercel.app).";
-  const attempts = req.method === "GET" || req.method === "HEAD" ? 3 : 1;
-  const timeoutMs = req.method === "POST" ? 110_000 : 20_000;
+  // Cold-starting the FastAPI project (Postgres + migrations) can take 30–60s.
+  const attempts = req.method === "GET" || req.method === "HEAD" ? 2 : 1;
+  const timeoutMs = req.method === "POST" ? 110_000 : 55_000;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {

@@ -67,6 +67,17 @@ async function parseError(res: Response): Promise<string> {
       "Query API returned 404. Confirm the dashboard Vercel Root Directory is web, API_BASE_URL is https://<api-project>.vercel.app (no path), then Redeploy."
     );
   }
+  if (res.status === 504) {
+    return (
+      "Query API timed out (504). After a deploy or idle period the API may need up to a minute to connect to Postgres — click Retry. " +
+      "If this keeps happening, confirm the dashboard Vercel project has API_BASE_URL=https://<api-project>.vercel.app."
+    );
+  }
+  if (res.status === 502) {
+    return (
+      "Query API is not reachable (502). Start the API locally (python -m src.api) or set API_BASE_URL to the FastAPI Vercel origin, then retry."
+    );
+  }
   if (statusText) return res.status ? `${res.status} ${statusText}` : statusText;
   return res.status ? `Request failed (${res.status})` : "Request failed";
 }

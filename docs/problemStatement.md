@@ -101,16 +101,16 @@ All questions are scoped to **Myntra users**. Every answer must be backed by:
 
 ### AI analysis layer
 
-Where Claude / LLM does the heavy lifting.
+Where **Groq** does the heavy lifting. Embeddings are local **BGE** (`BAAI/bge-m3`), **not** OpenAI embedding models.
 
-- Chunking + embedding of normalized text into a vector store (e.g. pgvector / Chroma / Pinecone)
-- LLM-based structured extraction pass (Claude / GPT) per document:
+- Chunking + **BGE-M3** embedding of normalized text into a vector store (pgvector; Chroma / Pinecone only if isolating vectors)
+- **Groq** structured extraction pass per document:
   - `intent_tag` — why wishlisted, if inferable
   - `friction_tag` — why not purchased, if inferable
   - `entities` — category, brand, occasion, size/fit mention, price mention, competitor mention
   - `sentiment` — granular: trust, delight, frustration, doubt
   - `verbatim_quote` — short, attributable evidence span
-- Theme clustering: embedding-based clustering (HDBSCAN / k-means on embeddings) + LLM labeling of each cluster into a human-readable **opportunity area** name
+- Theme clustering: **BGE** embedding-based clustering (HDBSCAN / k-means on embeddings) + **Groq** labeling of each cluster into a human-readable **opportunity area** name
 - Quantification layer — for each theme compute:
   - Share of voice (% of corpus mentioning it)
   - Source diversity (# distinct sources / platforms)
@@ -122,7 +122,7 @@ Where Claude / LLM does the heavy lifting.
 ### Surface A: RAG chatbot ("Insight Copilot")
 
 - Retrieval over the vector store (semantic search on raw quotes + structured tags as metadata filters, e.g. `category=footwear AND friction_tag=fit_uncertainty`)
-- LLM (Claude) generates grounded answers to PM questions (Section 2) with inline citations back to source snippets and counts
+- **Groq** generates grounded answers to PM questions (Section 2) with inline citations back to source snippets and counts
 - Must support **comparative / quantitative** questions, not just retrieval  
   Example: *"compare footwear vs. ethnic-wear wishlist drop-off reasons on Myntra"* → pulls structured aggregates, not just raw text
 - Must state confidence / evidence volume, and must **decline or caveat** when evidence is thin
@@ -140,7 +140,7 @@ Must include, at minimum:
 | **Sentiment trend** | Over time, overall and per theme / category |
 | **Segment comparison** | Cross-tab of themes × segments (category, price tier, platform, gender-if-inferable) |
 | **Source / platform breakdown** | Which sources contribute which themes (e.g. sizing complaints concentrate in Play Store reviews; styling indecision concentrates in Reddit / YouTube) |
-| **Automated reporting** | Scheduled (e.g. weekly) auto-generated summary report (LLM-written narrative + charts) emailed / exported as PDF, highlighting new / rising themes since last period |
+| **Automated reporting** | Scheduled (e.g. weekly) auto-generated summary report (**Groq**-written narrative + charts) emailed / exported as PDF, highlighting new / rising themes since last period |
 | **Raw evidence table** | Searchable / filterable table of scraped items with tags, for audit and qualitative spot-checking |
 
 ---

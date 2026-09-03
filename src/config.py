@@ -275,7 +275,7 @@ class Settings(BaseSettings):
 
     def require_api_secret_if_public(self) -> None:
         host = (self.api_host or "").strip()
-        secret = (self.api_shared_secret or "").strip()
+        secret = resolved_api_shared_secret(self)
         public = host not in {"127.0.0.1", "localhost", "::1"}
         if public and not secret:
             # Hosted platforms inject PORT. Exiting here means nothing listens.
@@ -286,6 +286,20 @@ class Settings(BaseSettings):
                 "API_SHARED_SECRET is required when binding beyond localhost "
                 f"(API_HOST={host}). Prototype auth is a shared secret."
             )
+
+
+def resolved_api_shared_secret(settings: Settings | None = None) -> str:
+    """Live API_SHARED_SECRET, ignoring empty docs placeholders."""
+    candidates: list[str] = []
+    if settings is not None:
+        candidates.append(settings.api_shared_secret or "")
+    candidates.append(os.environ.get("API_SHARED_SECRET") or "")
+    for raw in candidates:
+        secret = (raw or "").strip().strip('"').strip("'")
+        if not secret or "\u2026" in secret or secret.startswith("<"):
+            continue
+        return secret
+    return ""
 
 
 def resolve_listen_port(explicit: int | None = None, settings: Settings | None = None) -> int:

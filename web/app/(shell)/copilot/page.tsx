@@ -48,6 +48,10 @@ export default function CopilotPage() {
   useEffect(() => {
     const node = scroller.current;
     if (!node) return;
+    if (!turns.length) {
+      node.scrollTop = 0;
+      return;
+    }
     node.scrollTo({ top: node.scrollHeight, behavior: "smooth" });
   }, [turns, retrieving]);
 
@@ -153,7 +157,12 @@ export default function CopilotPage() {
       </header>
 
       <div ref={scroller} className="copilot-scroll min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6 md:py-8">
+        <div
+          className={cn(
+            "mx-auto w-full max-w-3xl px-4 py-6 md:px-6 md:py-8",
+            !turns.length && "flex min-h-full flex-col",
+          )}
+        >
           {!turns.length ? (
             <EmptyState onPick={activateSend} />
           ) : (
@@ -268,7 +277,7 @@ function EmptyState({
   ) => void;
 }) {
   return (
-    <div className="flex min-h-[calc(100dvh-16rem)] flex-col justify-center py-4">
+    <div className="flex flex-1 flex-col justify-center py-4">
       <div className="mb-8 text-center">
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-on-primary shadow-lift">
           <Icon name="smart_toy" className="text-[28px]" />

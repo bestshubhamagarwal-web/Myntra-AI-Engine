@@ -17,14 +17,13 @@ import { Icon } from "@/components/Icon";
 import { SOURCE_LABELS } from "@/lib/constants";
 import { useFilters, withCurrentFilters } from "@/lib/filters";
 import { formatInteger, formatShareOfVoice, rankLabel, sourceLabel } from "@/lib/format";
-import { useEvidenceQuery, useOverviewQuery, useThemesQuery } from "@/lib/hooks";
+import { useOverviewQuery, useThemesQuery } from "@/lib/hooks";
 import { ingestedSourceRows } from "@/lib/sources";
 
 export default function OverviewPage() {
-  const { filters, searchParams, openDrawer, setFilters } = useFilters();
+  const { filters, searchParams, setFilters } = useFilters();
   const overview = useOverviewQuery(filters);
   const themes = useThemesQuery(filters);
-  const evidence = useEvidenceQuery(filters);
 
   if ((overview.isPending && !overview.data) || (themes.isPending && !themes.data)) {
     return <PageSkeleton />;
@@ -52,7 +51,11 @@ export default function OverviewPage() {
       {data.empty ? (
         <EmptyState
           title="No documents in this slice"
-          body="The current filters match zero eligible documents. Clear a filter or wait for ingest. Nothing is filled in from a previous period."
+          body={
+            data.raw_count === 0 && data.normalized_count === 0
+              ? "Postgres is connected but the hosted corpus is empty. From your laptop, set DATABASE_URL to the same Neon URL as the Vercel API project, then run python -m src.cli sync-postgres (or pipeline) to load public reviews."
+              : "The current filters match zero eligible documents. Clear a filter or wait for ingest. Nothing is filled in from a previous period."
+          }
         />
       ) : null}
 
@@ -198,9 +201,7 @@ export default function OverviewPage() {
                 type="button"
                 className="grid w-full min-w-0 grid-cols-2 items-center gap-x-4 gap-y-1 px-4 py-4 text-left hairline-b hover:bg-level-0 sm:px-6 md:grid-cols-[3.5rem_minmax(0,1fr)_5.5rem_4.5rem_8rem]"
                 onClick={() => {
-                  const row = evidence.data?.rows.find((item) => item.theme_id === theme.theme_id);
-                  if (row) openDrawer(row.document_id, row.chunk_id);
-                  else setFilters({ theme_id: theme.theme_id });
+                  setFilters({ theme_id: theme.theme_id });
                 }}
               >
                 <div className="font-number-data font-medium tnum">{rankLabel(theme.rank)}</div>

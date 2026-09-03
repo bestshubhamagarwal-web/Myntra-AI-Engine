@@ -74,7 +74,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
         <main
           className={cn(
             "min-h-0 min-w-0 overflow-x-hidden",
-            flush ? "overflow-hidden p-0" : "overflow-y-auto p-4 md:p-6 xl:p-8",
+            flush ? "h-full overflow-hidden p-0" : "overflow-y-auto p-4 md:p-6 xl:p-8",
           )}
         >
           {children}

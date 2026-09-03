@@ -30,7 +30,7 @@ from src.api.schemas import (
     ThemesResponse,
     TrendsResponse,
 )
-from src.config import Settings, load_settings, apply_vercel_runtime_defaults
+from src.config import Settings, load_settings, apply_vercel_runtime_defaults, resolved_api_shared_secret
 from src.db.connect import (
     POSTGRES_UNREACHABLE,
     PostgresRequiredError,
@@ -109,14 +109,20 @@ def pending_store_detail(boot_error: str | None) -> str:
     if "localhost" in lowered or "127.0.0.1" in lowered:
         return (
             "DATABASE_URL still points at localhost. Set DATABASE_URL or POSTGRES_URL "
-            "to Neon (*.neon.tech, sslmode=require) on the Vercel API project, "
+            "to Neon (a real ep-*.aws.neon.tech host, sslmode=require) on the Vercel API project, "
             f"redeploy. Last error: {err}"
         )
-    if "*" in err or "placeholder" in lowered:
+    if (
+        "docs placeholder" in lowered
+        or "placeholder (host" in lowered
+        or "ep-\u2026" in err
+        or "\u2026.neon.tech" in err
+        or "host=ep-..." in lowered
+    ):
         return (
-            "DATABASE_URL is still the docs placeholder (host *.neon.tech). "
-            "Paste the real Neon connection string from the Neon dashboard "
-            f"(ep-….neon.tech), then Redeploy. Last error: {err}"
+            "DATABASE_URL is still the docs placeholder (*.neon.tech or ep-….neon.tech). "
+            "Paste the real Neon connection string from the Neon dashboard — hostname like "
+            f"ep-cool-name-a1b2c3.ap-southeast-1.aws.neon.tech — then Redeploy. Last error: {err}"
         )
     if "railway.internal" in lowered:
         return (
@@ -327,19 +333,21 @@ def create_app(
     )
 
     @app.exception_handler(psycopg.Error)
-    async def postgres_error(_request: Request, _exc: psycopg.Error):
-        return JSONResponse(status_code=503, content={"detail": POSTGRES_UNREACHABLE})
+    async def postgres_error(_request: Request, exc: psycopg.Error):
+        detail = pending_store_detail(str(exc)) if on_hosted_platform() else POSTGRES_UNREACHABLE
+        log.warning("Postgres query failed: %s", exc)
+        return JSONResponse(status_code=503, content={"detail": detail})
 
     def require_auth(
         x_api_key: str | None = Depends(API_KEY_HEADER),
         authorization: str | None = Header(default=None),
     ) -> None:
-        secret = (cfg.api_shared_secret or "").strip()
+        secret = resolved_api_shared_secret(cfg)
         if not secret:
             if on_hosted_platform():
-                raise HTTPException(
-                    status_code=503,
-                    detail="API_SHARED_SECRET is not set on the hosted Query API.",
+                log.warning(
+                    "API_SHARED_SECRET is empty on the hosted Query API; "
+                    "authenticated routes are open until a non-empty secret is set."
                 )
             return
         bearer = ""
