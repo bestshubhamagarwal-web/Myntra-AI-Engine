@@ -370,7 +370,10 @@ def _sync_cluster(
     progress: ProgressFn | None,
 ) -> dict[str, int]:
     counts: dict[str, int] = {}
-    target.start_cluster_run(run)
+    # Re-sync must be idempotent: Neon may already have the cluster_run row from a
+    # partial earlier push (themes without document_themes / theme_metrics).
+    if target.get_cluster_run(run.id) is None:
+        target.start_cluster_run(run)
 
     themes = [theme for theme in local.themes.values() if theme.cluster_run_id == run.id]
     total = len(themes)
@@ -380,15 +383,21 @@ def _sync_cluster(
     counts["themes"] = total
 
     doc_themes = [row for row in local.document_themes if row.cluster_run_id == run.id]
+    _progress(progress, "document_themes", 0, len(doc_themes))
     target.replace_document_themes(run.id, doc_themes)
+    _progress(progress, "document_themes", len(doc_themes), len(doc_themes))
     counts["document_themes"] = len(doc_themes)
 
     metrics = [row for row in local.theme_metrics if row.cluster_run_id == run.id]
+    _progress(progress, "theme_metrics", 0, len(metrics))
     target.replace_theme_metrics(run.id, metrics)
+    _progress(progress, "theme_metrics", len(metrics), len(metrics))
     counts["theme_metrics"] = len(metrics)
 
     ngrams = [row for row in local.ngrams if row.cluster_run_id == run.id]
+    _progress(progress, "ngrams", 0, len(ngrams))
     target.replace_ngrams(run.id, ngrams)
+    _progress(progress, "ngrams", len(ngrams), len(ngrams))
     counts["ngrams"] = len(ngrams)
 
     target.finish_cluster_run(run)

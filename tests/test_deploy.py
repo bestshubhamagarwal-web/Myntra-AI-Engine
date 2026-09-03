@@ -85,12 +85,16 @@ def test_vercel_fastapi_entrypoint_and_requirements():
 def test_normalize_database_url_neon_requires_tls():
     url = normalize_database_url("postgresql://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb")
     assert "sslmode=require" in url
+    assert "channel_binding=disable" in url
     assert _hostname(url) == "ep-abc.ap-southeast-1.aws.neon.tech"
     prisma = normalize_database_url(
-        "postgres://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb?pgbouncer=true&sslmode=require"
+        "postgres://u:p@ep-abc.ap-southeast-1.aws.neon.tech/neondb"
+        "?pgbouncer=true&sslmode=require&channel_binding=require"
     )
     assert "pgbouncer" not in prisma.lower()
     assert "sslmode=require" in prisma
+    assert "channel_binding=disable" in prisma
+    assert "channel_binding=require" not in prisma
 
 
 def test_conninfo_candidates_neon_does_not_try_disable():

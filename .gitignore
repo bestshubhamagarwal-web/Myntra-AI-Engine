@@ -32,3 +32,5 @@ web/.next/
 script.md
 .vercel
 .env*
+.neon
+.neon.claim.env

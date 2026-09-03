@@ -584,31 +584,46 @@ def private_ips_for_host(host: str) -> list[str]:
 
 
 def _conninfo_with_hostaddrs(conninfo: str) -> list[str]:
-    """Connect to a private IP (sslmode=disable). libpq skips DNS when hostaddr is set."""
+    """Prefer concrete IPs when DNS is dual-stack (Vercel often cannot bind IPv6)."""
     host = _hostname(conninfo)
-    if not host or not is_render_postgres_host(host):
+    if not host:
         return []
-    names = [host]
-    for url in expand_render_postgres_url(conninfo):
-        extra = _hostname(url)
-        if extra and extra not in names:
-            names.append(extra)
-    ips: list[str] = []
-    for name in names:
-        for ip in private_ips_for_host(name):
-            if ip not in ips:
-                ips.append(ip)
     out: list[str] = []
-    for ip in ips:
-        out.append(
-            _with_query_params(
-                conninfo,
-                hostaddr=ip,
-                sslmode="disable",
-                gssencmode="disable",
-                channel_binding="disable",
+    if is_render_postgres_host(host):
+        names = [host]
+        for url in expand_render_postgres_url(conninfo):
+            extra = _hostname(url)
+            if extra and extra not in names:
+                names.append(extra)
+        ips: list[str] = []
+        for name in names:
+            for ip in private_ips_for_host(name):
+                if ip not in ips:
+                    ips.append(ip)
+        for ip in ips:
+            out.append(
+                _with_query_params(
+                    conninfo,
+                    hostaddr=ip,
+                    sslmode="disable",
+                    gssencmode="disable",
+                    channel_binding="disable",
+                )
             )
-        )
+        return out
+    if is_neon_postgres_host(host) or is_supabase_postgres_host(host):
+        # Keep hostname for TLS SNI; pin IPv4 via hostaddr so libpq does not try IPv6 first.
+        for ip in resolved_ips_for_host(host):
+            if not ip or ":" in ip:
+                continue
+            out.append(
+                _with_query_params(
+                    conninfo,
+                    hostaddr=ip,
+                    sslmode="require",
+                    channel_binding="disable",
+                )
+            )
     return out
 
 
@@ -764,19 +779,26 @@ def normalize_database_url(url: str) -> str:
         pairs.append((key, value))
         keys.add(key.lower())
 
+    def force_param(key: str, value: str) -> None:
+        """Overwrite query params Neon may set to values that break serverless (e.g. channel_binding=require)."""
+        nonlocal pairs, keys
+        pairs = [(k, v) for k, v in pairs if k.lower() != key.lower()]
+        pairs.append((key, value))
+        keys.add(key.lower())
+
     host_l = host.lower()
     if is_render_postgres_host(host_l):
         set_default("sslmode", "require")
         set_default("gssencmode", "disable")
-        set_default("channel_binding", "disable")
+        force_param("channel_binding", "disable")
     elif (
         host_l.endswith(".rlwy.net")
         or host_l.endswith(".railway.app")
         or is_neon_postgres_host(host_l)
         or is_supabase_postgres_host(host_l)
     ):
-        set_default("sslmode", "require")
-        set_default("channel_binding", "disable")
+        force_param("sslmode", "require")
+        force_param("channel_binding", "disable")
     elif host_l.endswith(".railway.internal"):
         set_default("sslmode", "disable")
     return _rebuild_postgres_url(host, port, user, password, path, urlencode(pairs))

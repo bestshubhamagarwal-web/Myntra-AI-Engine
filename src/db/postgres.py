@@ -34,6 +34,12 @@ from src.timeutil import as_uuid, coerce_aware
 _POOLS: dict[str, "_ConnPool"] = {}
 _POOLS_LOCK = Lock()
 _POOL_MAX = 4
+_WRITE_BATCH = 500
+
+
+def _batched(items: Sequence[Any], size: int = _WRITE_BATCH):
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
 
 
 class _PooledCheckout:
@@ -1604,27 +1610,33 @@ class PostgresRepository:
         return [_row_to_theme(r) for r in rows]
 
     def replace_document_themes(self, cluster_run_id: UUID, rows: list[DocumentTheme]) -> None:
+        values = [
+            (
+                str(row.document_id),
+                str(row.theme_id),
+                str(row.cluster_run_id),
+                row.assignment_confidence,
+                row.assignment_method,
+            )
+            for row in rows
+        ]
+        sql = """
+            INSERT INTO document_themes (
+                document_id, theme_id, cluster_run_id,
+                assignment_confidence, assignment_method
+            ) VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (document_id, theme_id, cluster_run_id) DO UPDATE SET
+                assignment_confidence = EXCLUDED.assignment_confidence,
+                assignment_method = EXCLUDED.assignment_method
+        """
         with self.connect() as conn:
             conn.execute(
                 "DELETE FROM document_themes WHERE cluster_run_id = %s",
                 (str(cluster_run_id),),
             )
-            for row in rows:
-                conn.execute(
-                    """
-                    INSERT INTO document_themes (
-                        document_id, theme_id, cluster_run_id,
-                        assignment_confidence, assignment_method
-                    ) VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    (
-                        str(row.document_id),
-                        str(row.theme_id),
-                        str(row.cluster_run_id),
-                        row.assignment_confidence,
-                        row.assignment_method,
-                    ),
-                )
+            with conn.cursor() as cur:
+                for batch in _batched(values):
+                    cur.executemany(sql, batch)
             conn.commit()
 
     def list_document_themes(
@@ -1648,61 +1660,66 @@ class PostgresRepository:
     def replace_theme_metrics(
         self, cluster_run_id: UUID, rows: list[ThemeMetricsSnapshot]
     ) -> None:
+        values = [
+            (
+                str(row.id),
+                str(row.theme_id),
+                str(row.cluster_run_id),
+                row.slice_kind,
+                Json(row.slice),
+                row.period_start,
+                row.period_end,
+                row.mention_count,
+                row.eligible_corpus_count,
+                row.share_of_voice,
+                row.source_diversity,
+                row.independent_source_density,
+                row.sentiment_skew,
+                row.sentiment_severity,
+                row.trend_direction,
+                row.segment_concentration,
+                row.segment_breadth,
+                row.data_confidence,
+                row.impact_score,
+                Json(row.unavailable_sources),
+                row.denominator_definition,
+                row.mean_extraction_confidence,
+                row.c_max,
+                row.s_max,
+                row.computed_at,
+            )
+            for row in rows
+        ]
+        sql = """
+            INSERT INTO theme_metrics (
+                id, theme_id, cluster_run_id, slice_kind, slice,
+                period_start, period_end, mention_count, eligible_corpus_count,
+                share_of_voice, source_diversity, independent_source_density,
+                sentiment_skew, sentiment_severity, trend_direction,
+                segment_concentration, segment_breadth, data_confidence,
+                impact_score, unavailable_sources, denominator_definition,
+                mean_extraction_confidence, c_max, s_max, computed_at
+            ) VALUES (
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, %s
+            )
+        """
         with self.connect() as conn:
             conn.execute(
                 "DELETE FROM theme_metrics WHERE cluster_run_id = %s",
                 (str(cluster_run_id),),
             )
-            for row in rows:
-                conn.execute(
-                    """
-                    INSERT INTO theme_metrics (
-                        id, theme_id, cluster_run_id, slice_kind, slice,
-                        period_start, period_end, mention_count, eligible_corpus_count,
-                        share_of_voice, source_diversity, independent_source_density,
-                        sentiment_skew, sentiment_severity, trend_direction,
-                        segment_concentration, segment_breadth, data_confidence,
-                        impact_score, unavailable_sources, denominator_definition,
-                        mean_extraction_confidence, c_max, s_max, computed_at
-                    ) VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s, %s
-                    )
-                    """,
-                    (
-                        str(row.id),
-                        str(row.theme_id),
-                        str(row.cluster_run_id),
-                        row.slice_kind,
-                        Json(row.slice),
-                        row.period_start,
-                        row.period_end,
-                        row.mention_count,
-                        row.eligible_corpus_count,
-                        row.share_of_voice,
-                        row.source_diversity,
-                        row.independent_source_density,
-                        row.sentiment_skew,
-                        row.sentiment_severity,
-                        row.trend_direction,
-                        row.segment_concentration,
-                        row.segment_breadth,
-                        row.data_confidence,
-                        row.impact_score,
-                        Json(row.unavailable_sources),
-                        row.denominator_definition,
-                        row.mean_extraction_confidence,
-                        row.c_max,
-                        row.s_max,
-                        row.computed_at,
-                    ),
-                )
             conn.commit()
+        for batch in _batched(values, 200):
+            with self.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.executemany(sql, batch)
+                conn.commit()
 
     def list_theme_metrics(
         self,
@@ -1741,32 +1758,37 @@ class PostgresRepository:
         return [_row_to_ingest_run(r) for r in rows]
 
     def replace_ngrams(self, cluster_run_id: UUID, rows: list[NgramRow]) -> None:
+        values = [
+            (
+                str(row.id),
+                str(cluster_run_id),
+                row.gram,
+                row.n,
+                str(row.theme_id) if row.theme_id else None,
+                row.category,
+                row.sentiment,
+                row.count,
+                row.computed_at,
+            )
+            for row in rows
+        ]
+        sql = """
+            INSERT INTO ngrams (
+                id, cluster_run_id, gram, n, theme_id, category, sentiment,
+                count, computed_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
         with self.connect() as conn:
             conn.execute(
                 "DELETE FROM ngrams WHERE cluster_run_id = %s",
                 (str(cluster_run_id),),
             )
-            for row in rows:
-                conn.execute(
-                    """
-                    INSERT INTO ngrams (
-                        id, cluster_run_id, gram, n, theme_id, category, sentiment,
-                        count, computed_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        str(row.id),
-                        str(cluster_run_id),
-                        row.gram,
-                        row.n,
-                        str(row.theme_id) if row.theme_id else None,
-                        row.category,
-                        row.sentiment,
-                        row.count,
-                        row.computed_at,
-                    ),
-                )
             conn.commit()
+        for batch in _batched(values, 200):
+            with self.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.executemany(sql, batch)
+                conn.commit()
 
     def list_ngrams(
         self,
